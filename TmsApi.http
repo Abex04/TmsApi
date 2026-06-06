@@ -1,0 +1,14 @@
+@TmsApi_HostAddress = http://localhost:5189
+
+# Test 1: Anonymous request — should get 401
+GET {{TmsApi_HostAddress}}/api/assessments/results
+Accept: application/json
+
+###
+
+# Test 2: Authenticated request — should get 200
+GET {{TmsApi_HostAddress}}/api/assessments/results
+Accept: application/json
+X-Training-User: Abebe
+
+###
