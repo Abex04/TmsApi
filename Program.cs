@@ -3,11 +3,27 @@ var builder = WebApplication.CreateBuilder(args);
 // Register controllers
 builder.Services.AddControllers();
 
+// Validate DI lifetimes at startup — catches captive dependency bugs early
+builder.Host.UseDefaultServiceProvider(options =>
+{
+    options.ValidateScopes = true;
+    options.ValidateOnBuild = true;
+});
+
+// Buggy registration — singleton holding a scoped service
+builder.Services.AddSingleton<EnrollmentWorker>();
+builder.Services.AddScoped<IEnrollmentService, EnrollmentService>();
+
 // Register the training authentication scheme and authorization services
 builder.Services
     .AddAuthentication("Training")
     .AddScheme<Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions,
         TrainingAuthHandler>("Training", null);
+        // Bind PaymentOptions to the "Payments" section and validate at startup
+builder.Services.AddOptions<PaymentOptions>()
+    .BindConfiguration("Payments")
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
 
 builder.Services.AddAuthorization();
 
