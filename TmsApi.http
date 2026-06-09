@@ -1,14 +1,35 @@
 @TmsApi_HostAddress = http://localhost:5189
 
-# Test 1: Anonymous request — should get 401
-GET {{TmsApi_HostAddress}}/api/assessments/results
+# Test 1: GET all enrollments (should return empty array)
+GET {{TmsApi_HostAddress}}/api/enrollments
 Accept: application/json
 
 ###
 
-# Test 2: Authenticated request — should get 200
-GET {{TmsApi_HostAddress}}/api/assessments/results
+# Test 2: POST a new enrollment (should return 201 with Location header)
+POST {{TmsApi_HostAddress}}/api/enrollments
+Content-Type: application/json
+X-Training-User: Abebe
+
+{
+  "studentId": "S-001",
+  "courseCode": "CS-101"
+}
+
+###
+
+# Test 3: GET the created enrollment
+GET {{TmsApi_HostAddress}}/api/enrollments/dd0a99e4
 Accept: application/json
+
+###
+
+# Test 4: DELETE the enrollment
+DELETE {{TmsApi_HostAddress}}/api/enrollments/dd0a99e4
 X-Training-User: Abebe
 
 ###
+
+# Test 5: GET deleted enrollment (should return 404)
+GET {{TmsApi_HostAddress}}/api/enrollments/dd0a99e4
+Accept: application/json

@@ -12,7 +12,7 @@ builder.Host.UseDefaultServiceProvider(options =>
 
 // Buggy registration — singleton holding a scoped service
 builder.Services.AddSingleton<EnrollmentWorker>();
-builder.Services.AddScoped<IEnrollmentService, EnrollmentService>();
+builder.Services.AddSingleton<IEnrollmentService, EnrollmentService>();
 
 // Register the training authentication scheme and authorization services
 builder.Services
