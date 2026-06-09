@@ -3,35 +3,39 @@ var builder = WebApplication.CreateBuilder(args);
 // Register controllers
 builder.Services.AddControllers();
 
-// Validate DI lifetimes at startup — catches captive dependency bugs early
+// Validate DI lifetimes at startup
 builder.Host.UseDefaultServiceProvider(options =>
 {
     options.ValidateScopes = true;
     options.ValidateOnBuild = true;
 });
 
-// Buggy registration — singleton holding a scoped service
+// Service registrations
 builder.Services.AddSingleton<EnrollmentWorker>();
 builder.Services.AddSingleton<IEnrollmentService, EnrollmentService>();
 
-// Register the training authentication scheme and authorization services
+// Register the training authentication scheme
 builder.Services
     .AddAuthentication("Training")
     .AddScheme<Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions,
         TrainingAuthHandler>("Training", null);
-        // Bind PaymentOptions to the "Payments" section and validate at startup
+
+builder.Services.AddAuthorization();
+
+// Bind PaymentOptions and validate at startup
 builder.Services.AddOptions<PaymentOptions>()
     .BindConfiguration("Payments")
     .ValidateDataAnnotations()
     .ValidateOnStart();
 
-builder.Services.AddAuthorization();
+// Register ProblemDetails service
+builder.Services.AddProblemDetails();
 
 var app = builder.Build();
 
 // Middleware pipeline — order matters!
 app.UseMiddleware<RequestLoggingMiddleware>(); // Outer wrapper — logs every request
-app.UseExceptionHandler("/error");             // Catch unhandled exceptions
+app.UseExceptionHandler();                     // Catch unhandled exceptions
 app.UseHttpsRedirection();
 app.UseRouting();
 app.UseAuthentication();                       // Step 1: Who are you?
@@ -45,6 +49,12 @@ app.MapGet("/api/assessments/results", () => Results.Ok(new
     letterGrade = "A"
 }))
 .RequireAuthorization();
+
+// Test route — intentionally throws to verify ProblemDetails shape
+app.MapGet("/api/error", () =>
+{
+    throw new TmsDatabaseException("Simulated database failure for ProblemDetails testing");
+});
 
 app.MapControllers();
 

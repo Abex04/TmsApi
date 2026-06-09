@@ -33,3 +33,11 @@ X-Training-User: Abebe
 # Test 5: GET deleted enrollment (should return 404)
 GET {{TmsApi_HostAddress}}/api/enrollments/dd0a99e4
 Accept: application/json
+# Test ProblemDetails
+GET {{TmsApi_HostAddress}}/api/error
+Accept: application/json
+###
+
+# Test 6: ProblemDetails error test
+GET {{TmsApi_HostAddress}}/api/error
+Accept: application/json
