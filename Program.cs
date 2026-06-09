@@ -1,3 +1,5 @@
+using Scalar.AspNetCore;
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Register controllers
@@ -31,6 +33,9 @@ builder.Services.AddOptions<PaymentOptions>()
 // Register ProblemDetails service
 builder.Services.AddProblemDetails();
 
+// Required for Scalar API explorer
+builder.Services.AddOpenApi();
+
 var app = builder.Build();
 
 // Middleware pipeline — order matters!
@@ -40,6 +45,14 @@ app.UseHttpsRedirection();
 app.UseRouting();
 app.UseAuthentication();                       // Step 1: Who are you?
 app.UseAuthorization();                        // Step 2: Are you allowed?
+
+// Development only — show Scalar API explorer
+// Production — hide everything, show only ProblemDetails
+if (app.Environment.IsDevelopment())
+{
+    app.MapOpenApi();
+    app.MapScalarApiReference();
+}
 
 // Protected route — anonymous callers get 401
 app.MapGet("/api/assessments/results", () => Results.Ok(new
