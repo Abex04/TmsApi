@@ -1,3 +1,5 @@
+using Microsoft.EntityFrameworkCore;
+using TmsApi.Data;
 var builder = WebApplication.CreateBuilder(args);
 
 // Register controllers
@@ -28,6 +30,9 @@ builder.Services.AddOptions<PaymentOptions>()
 builder.Services.AddAuthorization();
 
 var app = builder.Build();
+// Register TmsDbContext scoped for incoming HTTP requests
+builder.Services.AddDbContext<TmsDbContext>(options =>
+    options.UseNpgsql(builder.Configuration.GetConnectionString("TmsDatabase")));
 
 // Middleware pipeline — order matters!
 app.UseMiddleware<RequestLoggingMiddleware>(); // Outer wrapper — logs every request
