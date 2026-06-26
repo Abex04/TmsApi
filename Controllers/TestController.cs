@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using TmsApi.Data;
 
 namespace TmsApi.Controllers;
@@ -7,6 +8,7 @@ namespace TmsApi.Controllers;
 [Route("api/test")]
 public class TestController(TmsDbContext context) : ControllerBase
 {
+    // Exercise 2 - Deferred execution experiment
     [HttpGet("deferred")]
     public IActionResult TestDeferred()
     {
@@ -24,6 +26,7 @@ public class TestController(TmsDbContext context) : ControllerBase
         return Ok(results);
     }
 
+    // Exercise 2 - Translation failure experiment
     [HttpGet("translation-fail")]
     public IActionResult TestTranslationFail()
     {
@@ -42,8 +45,53 @@ public class TestController(TmsDbContext context) : ControllerBase
         }
     }
 
-    private static bool IsHonorRoll(decimal gpa)
+    // Exercise 7 Part A - Intentional N+1 (bad pattern — for learning only)
+    [HttpGet("n-plus-one")]
+    public async Task<IActionResult> TestNPlusOne(CancellationToken cancellationToken)
     {
-        return gpa >= 3.5m;
+        Console.WriteLine("\n>>> N+1 DEMO: Loading students then querying each one separately...");
+
+        // 1 query to load all students
+        var students = await context.Students
+            .AsNoTracking()
+            .ToListAsync(cancellationToken);
+
+        foreach (var s in students)
+        {
+            // 1 query PER student = N extra queries!
+            var count = await context.Enrollments
+                .AsNoTracking()
+                .CountAsync(e => e.StudentId == s.Id, cancellationToken);
+
+            Console.WriteLine($"{s.Name}: {count} enrollments");
+        }
+
+        Console.WriteLine(">>> N+1 DEMO: Done — check how many SQL queries ran!\n");
+        return Ok("Check terminal for N+1 query count");
     }
+
+    // Exercise 7 Part B - Fixed with single projection query (good pattern)
+    [HttpGet("n-plus-one-fix")]
+    public async Task<IActionResult> TestNPlusOneFix(CancellationToken cancellationToken)
+    {
+        Console.WriteLine("\n>>> FIX DEMO: Loading everything in ONE query...");
+
+        // Single query — EF translates Count to a SQL subquery
+        var report = await context.Students
+            .AsNoTracking()
+            .Select(s => new
+            {
+                s.Name,
+                EnrollmentCount = s.Enrollments.Count
+            })
+            .ToListAsync(cancellationToken);
+
+        foreach (var r in report)
+            Console.WriteLine($"{r.Name}: {r.EnrollmentCount} enrollments");
+
+        Console.WriteLine(">>> FIX DEMO: Done — only 1 SQL query ran!\n");
+        return Ok(report);
+    }
+
+    private static bool IsHonorRoll(decimal gpa) => gpa >= 3.5m;
 }

@@ -5,12 +5,13 @@ namespace TmsApi.Entities;
 public class Enrollment
 {
     public int Id { get; set; }
-    public int StudentId { get; set; }          // foreign key pointing to Student
-    public int CourseId { get; set; }           // foreign key pointing to Course
-    public decimal? Grade { get; set; }         // Nullable — student may be currently enrolled
+    public int StudentId { get; set; }
+    public int CourseId { get; set; }
+    public decimal? Grade { get; set; }
     public DateTime EnrolledAt { get; set; } = DateTime.UtcNow;
+    public bool IsArchived { get; set; } = false;       // bulk archive flag
 
-    // Navigation properties back to entities
+    // Navigation properties
     public Student Student { get; set; } = null!;
     public Course Course { get; set; } = null!;
 }
