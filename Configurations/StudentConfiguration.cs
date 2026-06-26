@@ -8,25 +8,30 @@ public class StudentConfiguration : IEntityTypeConfiguration<Student>
 {
     public void Configure(EntityTypeBuilder<Student> builder)
     {
-        // Primary key
         builder.HasKey(s => s.Id);
 
-        // RegistrationNumber is required and max 20 characters
         builder.Property(s => s.RegistrationNumber)
             .IsRequired()
             .HasMaxLength(20);
 
-        // Name is required and max 100 characters
         builder.Property(s => s.Name)
             .IsRequired()
             .HasMaxLength(100);
 
-        // GPA has 2 decimal places
         builder.Property(s => s.GPA)
             .HasPrecision(4, 2);
 
-        // IsActive defaults to true
         builder.Property(s => s.IsActive)
             .HasDefaultValue(true);
+
+        builder.Property(s => s.IsDeleted)
+            .HasDefaultValue(false);
+
+        // Shadow property — exists in DB but not in C# class
+        // Tracks when record was last updated without cluttering the DTO
+        builder.Property<DateTime>("LastUpdated");
+
+        // Soft delete filter — IsDeleted students hidden from all normal queries
+        builder.HasQueryFilter(s => !s.IsDeleted);
     }
 }
