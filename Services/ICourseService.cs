@@ -15,5 +15,6 @@ public interface ICourseService
 
     // Create a new course from validated request data, and return
     // the created course in the same safe response shape.
+    Task<bool> CodeExistsAsync(string code, CancellationToken ct);
     Task<CourseResponseDto> CreateAsync(CreateCourseRequest request, CancellationToken ct);
 }

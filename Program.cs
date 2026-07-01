@@ -18,6 +18,7 @@ builder.Host.UseDefaultServiceProvider(options =>
 builder.Services.AddSingleton<EnrollmentWorker>();
 builder.Services.AddSingleton<IEnrollmentService, EnrollmentService>();
 builder.Services.AddScoped<ICourseService, CourseService>();
+builder.Services.AddScoped<ICourseEnrollmentService, CourseEnrollmentService>();
 builder.Services
     .AddAuthentication("Training")
     .AddScheme<Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions,

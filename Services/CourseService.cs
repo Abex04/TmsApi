@@ -48,4 +48,10 @@ public class CourseService(TmsDbContext context, ILogger<CourseService> logger) 
         // so we know for certain it exists and GetByIdAsync will find it.
         return (await GetByIdAsync(course.Id, ct))!;
     }
+   // Checks whether a course with this exact code already exists.
+    // AnyAsync translates to SQL "SELECT EXISTS(SELECT 1 ... LIMIT 1)" —
+    // it stops at the first match instead of loading a full row, making
+    // this the fastest way to answer a yes/no existence question.
+    public Task<bool> CodeExistsAsync(string code, CancellationToken ct) =>
+        context.Courses.AsNoTracking().AnyAsync(c => c.Code == code, ct); 
 }
