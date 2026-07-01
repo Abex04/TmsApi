@@ -1,35 +1,51 @@
 using Microsoft.EntityFrameworkCore;
 using TmsApi.Data;
+using TmsApi.Dtos;
 using TmsApi.Entities;
 
 namespace TmsApi.Services;
 
 // Real implementation of ICourseService, backed by TmsDbContext (PostgreSQL via EF Core).
-// Primary constructor: "context" and "logger" are injected by ASP.NET Core's DI container
-// and can be used directly anywhere in this class, without a manual constructor body.
+// Every method here returns/accepts DTOs — the Course entity itself never
+// leaves this class, which is what prevents the circular-reference JSON crash.
 public class CourseService(TmsDbContext context, ILogger<CourseService> logger) : ICourseService
 {
-    public async Task<Course?> GetByIdAsync(int id, CancellationToken ct)
+    public Task<CourseResponseDto?> GetByIdAsync(int id, CancellationToken ct)
     {
-        // AsNoTracking() = read-only fetch. We are not going to modify this course,
-        // so we skip EF's change-tracking overhead for better performance.
-        return await context.Courses
+        // AsNoTracking() = read-only fetch, no change-tracking overhead.
+        // Select(...) projects straight into CourseResponseDto at the database level —
+        // EF translates c.Enrollments.Count into a SQL COUNT(*) subquery,
+        // so we never load the full enrollments list just to count it.
+        return context.Courses
             .AsNoTracking()
-            .FirstOrDefaultAsync(c => c.Id == id, ct);
+            .Where(c => c.Id == id)
+            .Select(c => new CourseResponseDto(
+                c.Id, c.Code, c.Title, c.MaxCapacity, c.Enrollments.Count))
+            .FirstOrDefaultAsync(ct);
     }
 
-    public async Task<Course> CreateAsync(Course course, CancellationToken ct)
+    public async Task<CourseResponseDto> CreateAsync(CreateCourseRequest request, CancellationToken ct)
     {
-        // Add() stages the new course in memory; nothing is sent to the database yet.
-        context.Courses.Add(course);
+        // Build a real Course entity from the validated request data.
+        var course = new Course
+        {
+            Code = request.Code,
+            Title = request.Title,
+            MaxCapacity = request.MaxCapacity
+        };
 
-        // SaveChangesAsync() actually executes the INSERT statement against PostgreSQL.
+        // Stage the insert, then actually execute it against PostgreSQL.
+        context.Courses.Add(course);
         await context.SaveChangesAsync(ct);
 
-        // Log a breadcrumb so we can see in production logs exactly which course was created and when.
+        // Log a single breadcrumb per write — not per read — to keep production logs useful, not noisy.
         logger.LogInformation("Created course {CourseId} ({Code})", course.Id, course.Code);
 
-        // course.Id is now populated by EF Core with the database-generated identity value.
-        return course;
+        // Re-fetch through GetByIdAsync so the response uses the exact same
+        // projection as every other read — one single source of truth for
+        // "what a course DTO looks like."
+        // The '!' is safe here: we just inserted and saved this course,
+        // so we know for certain it exists and GetByIdAsync will find it.
+        return (await GetByIdAsync(course.Id, ct))!;
     }
 }

@@ -1,18 +1,19 @@
-using TmsApi.Entities;
+using TmsApi.Dtos;
 
 namespace TmsApi.Services;
 
 // Contract for course-related business logic and data access.
-// The controller depends on this interface, not on the concrete
-// CourseService class, so we can swap implementations or mock it in tests.
+// Note: this interface now speaks entirely in DTOs (CourseResponseDto,
+// CreateCourseRequest), never in the raw Course entity. This keeps the
+// EF entity — and its navigation properties — from ever leaking past
+// the service boundary.
 public interface ICourseService
 {
-    // Fetch a single course by its Id.
-    // Returns null if no course with that Id exists — the controller
-    // decides what HTTP status that null becomes (404 Not Found).
-    Task<Course?> GetByIdAsync(int id, CancellationToken ct);
+    // Fetch a single course by its Id, projected into the safe response shape.
+    // Returns null if no course with that Id exists.
+    Task<CourseResponseDto?> GetByIdAsync(int id, CancellationToken ct);
 
-    // Create a new course and persist it to the database.
-    // Returns the created course, including the database-generated Id.
-    Task<Course> CreateAsync(Course course, CancellationToken ct);
+    // Create a new course from validated request data, and return
+    // the created course in the same safe response shape.
+    Task<CourseResponseDto> CreateAsync(CreateCourseRequest request, CancellationToken ct);
 }
