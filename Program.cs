@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Scalar.AspNetCore;
 using TmsApi.Data;
 using TmsApi.Entities;
+using TmsApi.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -16,7 +17,7 @@ builder.Host.UseDefaultServiceProvider(options =>
 
 builder.Services.AddSingleton<EnrollmentWorker>();
 builder.Services.AddSingleton<IEnrollmentService, EnrollmentService>();
-
+builder.Services.AddScoped<ICourseService, CourseService>();
 builder.Services
     .AddAuthentication("Training")
     .AddScheme<Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions,
