@@ -16,13 +16,19 @@ public class CourseConfiguration : IEntityTypeConfiguration<Course>
             .IsRequired()
             .HasMaxLength(10);
 
+        // Unique index on Code — prevents two courses from sharing the same code
+        // at the database level. This is what makes the duplicate-code check in
+        // Module 6 Exercise 3 a real business rule, not just a courtesy check.
+        builder.HasIndex(c => c.Code)
+            .IsUnique();
+
         // Title is required and max 200 characters
         builder.Property(c => c.Title)
             .IsRequired()
             .HasMaxLength(200);
 
-        // Capacity must be positive
-        builder.Property(c => c.Capacity)
+        // MaxCapacity must be provided (renamed from Capacity in Module 6)
+        builder.Property(c => c.MaxCapacity)
             .IsRequired();
     }
 }
