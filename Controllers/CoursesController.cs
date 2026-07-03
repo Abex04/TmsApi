@@ -19,6 +19,18 @@ public class CoursesController(ICourseService courseService) : ControllerBase
         return course is not null ? Ok(course) : NotFound();
     }
 
+    // GET /api/courses?page=1&pageSize=10&search=fund&orderBy=Code&descending=true
+    // [FromQuery] binds PagedRequest from the query string, not the request body —
+    // correct for a GET, since GET requests conventionally carry no body.
+    // This coexists with GetCourseById above: routing tells them apart based on
+    // whether the URL has an {id} segment.
+    [HttpGet]
+    public async Task<IActionResult> GetCourses([FromQuery] PagedRequest request, CancellationToken ct)
+    {
+        var result = await courseService.GetCoursesAsync(request, ct);
+        return Ok(result);
+    }
+
     // POST /api/courses
     // Binding to CreateCourseRequest (instead of the raw Course entity) means
     // the client can never set fields we don't want them setting, and every
