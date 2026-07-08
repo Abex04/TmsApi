@@ -1,21 +1,45 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Routing;
 using TmsApi.Dtos;
 using TmsApi.Services;
-using Microsoft.AspNetCore.Routing;
 
 namespace TmsApi.Controllers;
 
-// [ApiController] enables automatic model validation — if a CreateCourseRequest
-// fails its Data Annotations (Required, Range, RegularExpression, etc.),
-// ASP.NET Core returns 400 Bad Request automatically, before CreateCourse runs.
+// [Tags("Courses")] at the class level groups ALL course endpoints together
+// in Scalar's left-hand index. Never put [Tags] on individual actions —
+// that breaks the grouping and scatters endpoints into a flat list.
+// [Produces("application/json")] declares the response content type for
+// Scalar's "Try It" panel.
+// The class-level 500 ProducesResponseType means every action inherits it —
+// no need to repeat it on each action individually.
 [ApiController]
 [Route("api/courses")]
+[Tags("Courses")]
+[Produces("application/json")]
+[ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
 public class CoursesController(ICourseService courseService, LinkGenerator linkGenerator) : ControllerBase
 {
+    // GET /api/courses?page=1&pageSize=10&search=fund&orderBy=Code&descending=true
+    // [FromQuery] binds PagedRequest from the query string, not the request body —
+    // correct for a GET, since GET requests conventionally carry no body.
+    [HttpGet]
+    [ProducesResponseType(typeof(PagedResponse<CourseResponseDto>), StatusCodes.Status200OK)]
+    [EndpointSummary("List courses with pagination")]
+    [EndpointDescription("Returns a paginated, optionally filtered list of TMS courses. PageSize is capped at 50.")]
+    public async Task<IActionResult> GetCourses([FromQuery] PagedRequest request, CancellationToken ct)
+    {
+        var result = await courseService.GetCoursesAsync(request, ct);
+        return Ok(result);
+    }
+
     // GET /api/courses/{id}
     // Returns CourseDetailDto — the richer shape with a Links array, telling
     // the client what it can do next with this specific course (HATEOAS).
     [HttpGet("{id:int}", Name = nameof(GetCourseById))]
+    [ProducesResponseType(typeof(CourseDetailDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [EndpointSummary("Get a course by ID")]
+    [EndpointDescription("Returns course details with HATEOAS links. Returns 404 if the course does not exist.")]
     public async Task<IActionResult> GetCourseById(int id, CancellationToken ct)
     {
         var course = await courseService.GetByIdAsync(id, ct);
@@ -60,23 +84,16 @@ public class CoursesController(ICourseService courseService, LinkGenerator linkG
         return Ok(detail);
     }
 
-    // GET /api/courses?page=1&pageSize=10&search=fund&orderBy=Code&descending=true
-    // [FromQuery] binds PagedRequest from the query string, not the request body —
-    // correct for a GET, since GET requests conventionally carry no body.
-    // This coexists with GetCourseById above: routing tells them apart based on
-    // whether the URL has an {id} segment.
-    [HttpGet]
-    public async Task<IActionResult> GetCourses([FromQuery] PagedRequest request, CancellationToken ct)
-    {
-        var result = await courseService.GetCoursesAsync(request, ct);
-        return Ok(result);
-    }
-
     // POST /api/courses
     // Binding to CreateCourseRequest (instead of the raw Course entity) means
     // the client can never set fields we don't want them setting, and every
     // field is validated before this method body runs.
     [HttpPost]
+    [ProducesResponseType(typeof(CourseResponseDto), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    [EndpointSummary("Create a new course")]
+    [EndpointDescription("Creates a course with a unique code. Returns 409 if the course code already exists.")]
     public async Task<IActionResult> CreateCourse(CreateCourseRequest request, CancellationToken ct)
     {
         // Check the business rule BEFORE touching the database with an insert.
