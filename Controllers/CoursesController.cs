@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using TmsApi.Dtos;
 using TmsApi.Services;
+using Microsoft.AspNetCore.Routing;
 
 namespace TmsApi.Controllers;
 
@@ -9,14 +10,54 @@ namespace TmsApi.Controllers;
 // ASP.NET Core returns 400 Bad Request automatically, before CreateCourse runs.
 [ApiController]
 [Route("api/courses")]
-public class CoursesController(ICourseService courseService) : ControllerBase
+public class CoursesController(ICourseService courseService, LinkGenerator linkGenerator) : ControllerBase
 {
     // GET /api/courses/{id}
+    // Returns CourseDetailDto — the richer shape with a Links array, telling
+    // the client what it can do next with this specific course (HATEOAS).
     [HttpGet("{id:int}", Name = nameof(GetCourseById))]
     public async Task<IActionResult> GetCourseById(int id, CancellationToken ct)
     {
         var course = await courseService.GetByIdAsync(id, ct);
-        return course is not null ? Ok(course) : NotFound();
+        if (course is null)
+        {
+            return NotFound();
+        }
+
+        // GetPathByName builds a URL from the SAME routing metadata the framework
+        // uses to match incoming requests — never a hand-typed string. If a route
+        // is renamed later, this call automatically reflects the new path.
+        var selfHref = linkGenerator.GetPathByName(HttpContext, nameof(GetCourseById), new { id });
+        var enrollmentsHref = linkGenerator.GetPathByName(HttpContext, "ListCourseEnrollments", new { courseId = id });
+
+        var links = new List<LinkDto>
+        {
+            new(selfHref!, "self", "GET"),
+            new(selfHref!, "update", "PUT"),
+            new(selfHref!, "delete", "DELETE"),
+            new(enrollmentsHref!, "enrollments", "GET")
+        };
+
+        // The conditional link: only add "enroll" if there's still room.
+        // This is what makes HATEOAS earn its cost — the Angular team can check
+        // "does this course have an enroll link?" instead of duplicating the
+        // capacity rule in TypeScript.
+        if (course.EnrollmentCount < course.MaxCapacity)
+        {
+            links.Add(new LinkDto(enrollmentsHref!, "enroll", "POST"));
+        }
+
+        var detail = new CourseDetailDto
+        {
+            Id = course.Id,
+            Code = course.Code,
+            Title = course.Title,
+            MaxCapacity = course.MaxCapacity,
+            EnrollmentCount = course.EnrollmentCount,
+            Links = links
+        };
+
+        return Ok(detail);
     }
 
     // GET /api/courses?page=1&pageSize=10&search=fund&orderBy=Code&descending=true

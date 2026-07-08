@@ -20,6 +20,24 @@ public class EnrollmentsController(
         var enrollment = await enrollmentService.GetByIdAsync(courseId, id, ct);
         return enrollment is not null ? Ok(enrollment) : NotFound();
     }
+    // GET /api/courses/{courseId}/enrollments
+    // Named "ListCourseEnrollments" so LinkGenerator in CoursesController
+    // can build the enrollments/enroll href by name, not by hand-typed string.
+    [HttpGet(Name = "ListCourseEnrollments")]
+    public async Task<IActionResult> GetEnrollments(int courseId, CancellationToken ct)
+    {
+        // Step 1: Confirm the parent course exists — 404 if not.
+        // A list of enrollments for a nonexistent course makes no sense.
+        var course = await courseService.GetByIdAsync(courseId, ct);
+        if (course is null)
+        {
+            return NotFound();
+        }
+
+        // Step 2: Fetch all enrollments for this course and return them.
+        var enrollments = await enrollmentService.GetByCourseAsync(courseId, ct);
+        return Ok(enrollments);
+    }
 
     // POST /api/courses/{courseId}/enrollments
     [HttpPost]
