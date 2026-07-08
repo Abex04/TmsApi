@@ -4,10 +4,16 @@ using Scalar.AspNetCore;
 using TmsApi.Data;
 using TmsApi.Entities;
 using TmsApi.Services;
+using TmsApi.Filters;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddControllers();
+// Add<T>() (generic overload) lets DI construct AuditLogFilter itself,
+// automatically resolving ILogger<AuditLogFilter> — no manual construction needed.
+builder.Services.AddControllers(options =>
+{
+    options.Filters.Add<AuditLogFilter>();
+});
 
 builder.Host.UseDefaultServiceProvider(options =>
 {
@@ -107,5 +113,14 @@ app.MapGet("/api/error", () =>
 });
 
 app.MapControllers();
+
+// Seed deterministic demo data, but only in Development.
+// Staging and production data belongs to the operations team, not this seed file.
+if (app.Environment.IsDevelopment())
+{
+    using var scope = app.Services.CreateScope();
+    var context = scope.ServiceProvider.GetRequiredService<TmsDbContext>();
+    await DataSeeder.SeedAsync(context);
+}
 
 app.Run();

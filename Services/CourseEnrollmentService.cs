@@ -42,4 +42,18 @@ public class CourseEnrollmentService(TmsDbContext context, ILogger<CourseEnrollm
         // projection logic as every other read.
         return (await GetByIdAsync(courseId, enrollment.Id, ct))!;
     }
+    public Task<IReadOnlyList<EnrollmentResponseDto>> GetByCourseAsync(int courseId, CancellationToken ct)
+    {
+        // AsNoTracking() — read-only fetch, no change-tracking overhead.
+        // Where() scopes to just this course's enrollments.
+        // Select() projects directly into the DTO at the database level —
+        // never loads navigation properties into memory.
+        return context.Enrollments
+            .AsNoTracking()
+            .Where(e => e.CourseId == courseId)
+            .Select(e => new EnrollmentResponseDto(e.Id, e.CourseId, e.StudentId, e.EnrolledAt))
+            .ToListAsync(ct)
+            .ContinueWith(t => (IReadOnlyList<EnrollmentResponseDto>)t.Result, 
+                TaskContinuationOptions.ExecuteSynchronously);
+    }
 }

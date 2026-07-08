@@ -15,4 +15,7 @@ public interface ICourseEnrollmentService
     // Create a new enrollment for a student into a course, and return it
     // in the safe response shape.
     Task<EnrollmentResponseDto> CreateAsync(int courseId, EnrollStudentRequest request, CancellationToken ct);
+    // Fetch all enrollments belonging to a specific course, for the
+    // list-enrollments endpoint (GET /api/courses/{courseId}/enrollments).
+    Task<IReadOnlyList<EnrollmentResponseDto>> GetByCourseAsync(int courseId, CancellationToken ct);
 }
