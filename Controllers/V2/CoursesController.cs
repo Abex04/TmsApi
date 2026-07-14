@@ -1,0 +1,78 @@
+using Asp.Versioning;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using TmsApi.Data;
+
+namespace TmsApi.Controllers.V2;
+
+// V2 is the enriched contract — wraps the response in a data/meta/links
+// envelope so the Angular dashboard has structured paging metadata and
+// navigation links without a second round-trip.
+[ApiController]
+[Route("api/v{version:apiVersion}/courses")]
+[ApiVersion("2.0")]
+public class CoursesController(TmsDbContext context) : ControllerBase
+{
+    // GET /api/v2/courses
+    // Returns the V2 envelope: data (rows), meta (paging), links (navigation).
+    [HttpGet]
+    public async Task<IActionResult> GetCourses(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken ct = default)
+    {
+        // Clamp page and pageSize to safe values
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 50);
+
+        var baseQuery = context.Courses.AsNoTracking();
+
+        // Count BEFORE paging — same rule as Module 6
+        var totalCount = await baseQuery.CountAsync(ct);
+
+        var rows = await baseQuery
+            .OrderBy(c => c.Title)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(c => new
+            {
+                c.Id,
+                c.Code,
+                c.Title,
+                c.MaxCapacity,
+                EnrollmentCount = c.Enrollments.Count
+            })
+            .ToListAsync(ct);
+
+        var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
+        var hasNext = page < totalPages;
+        var hasPrevious = page > 1;
+
+        // V2 shape: data/meta/links envelope — different from V1's flat root.
+        // meta contains all paging fields; links contains navigation URLs.
+        return Ok(new
+        {
+            data = rows,
+            meta = new
+            {
+                totalCount,
+                page,
+                pageSize,
+                totalPages,
+                hasNext,
+                hasPrevious
+            },
+            links = new
+            {
+                self = $"/api/v2/courses?page={page}&pageSize={pageSize}",
+                next = hasNext
+                    ? $"/api/v2/courses?page={page + 1}&pageSize={pageSize}"
+                    : (string?)null,
+                prev = hasPrevious
+                    ? $"/api/v2/courses?page={page - 1}&pageSize={pageSize}"
+                    : (string?)null,
+                enroll = "/api/v2/enrollments"
+            }
+        });
+    }
+}

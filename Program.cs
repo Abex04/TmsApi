@@ -5,7 +5,8 @@ using TmsApi.Data;
 using TmsApi.Entities;
 using TmsApi.Services;
 using TmsApi.Filters;
-
+using Asp.Versioning;
+using TmsApi.Middleware;
 var builder = WebApplication.CreateBuilder(args);
 
 // Add<T>() (generic overload) lets DI construct AuditLogFilter itself,
@@ -38,7 +39,35 @@ builder.Services.AddOptions<PaymentOptions>()
     .ValidateOnStart();
 
 builder.Services.AddProblemDetails();
-builder.Services.AddOpenApi();
+// Separate OpenApi documents for V1 and V2 — Scalar shows them as a dropdown
+builder.Services.AddOpenApi("v1", options =>
+{
+    options.ShouldInclude = description => description.GroupName == "v1";
+});
+builder.Services.AddOpenApi("v2", options =>
+{
+    options.ShouldInclude = description => description.GroupName == "v2";
+});
+
+// API versioning — URL segment style (/api/v1/..., /api/v2/...)
+builder.Services.AddApiVersioning(options =>
+{
+    // Default to V1 if no version is specified in the URL
+    options.DefaultApiVersion = new ApiVersion(1, 0);
+    // Accept unversioned URLs while clients are migrating
+    options.AssumeDefaultVersionWhenUnspecified = true;
+    // Add "api-supported-versions: 1.0, 2.0" to every response header
+    options.ReportApiVersions = true;
+    // Version lives in the URL path, not a header or query string
+    options.ApiVersionReader = new UrlSegmentApiVersionReader();
+})
+.AddApiExplorer(options =>
+{
+    // Format: "v1", "v2" — used by Scalar to name the document groups
+    options.GroupNameFormat = "'v'VVV";
+    // Replaces {version} in route templates automatically
+    options.SubstituteApiVersionInUrl = true;
+});
 
 builder.Services.AddDbContext<TmsDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("TmsDatabase"))
@@ -95,7 +124,8 @@ app.UseAuthorization();
 
 if (app.Environment.IsDevelopment())
 {
-    app.MapOpenApi();
+   app.MapOpenApi("/openapi/v1.json").CacheOutput();
+app.MapOpenApi("/openapi/v2.json").CacheOutput();
     app.MapScalarApiReference();
 }
 
@@ -112,6 +142,10 @@ app.MapGet("/api/error", () =>
     throw new TmsDatabaseException("Simulated database failure for ProblemDetails testing");
 });
 
+app.MapControllers();
+// Stamp Deprecation, Sunset, and Link headers on every V1 response.
+// Must be registered before MapControllers() so it wraps controller execution.
+app.UseMiddleware<V1DeprecationMiddleware>();
 app.MapControllers();
 
 // Seed deterministic demo data, but only in Development.
