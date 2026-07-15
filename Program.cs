@@ -1,13 +1,37 @@
+using Asp.Versioning;
+using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Scalar.AspNetCore;
+using TmsApi.Application.Behaviors;
+using TmsApi.Application.Enrollments.Commands;
 using TmsApi.Data;
 using TmsApi.Entities;
-using TmsApi.Services;
+using TmsApi.ExceptionHandlers;
 using TmsApi.Filters;
-using Asp.Versioning;
 using TmsApi.Middleware;
+using TmsApi.Services;
+using MediatR;
+
 var builder = WebApplication.CreateBuilder(args);
+
+// MediatR — scans the assembly containing EnrollStudentHandler for all
+// IRequestHandler implementations and registers them automatically.
+builder.Services.AddMediatR(cfg =>
+    cfg.RegisterServicesFromAssembly(typeof(EnrollStudentHandler).Assembly));
+
+// FluentValidation — scans for all AbstractValidator<T> implementations
+builder.Services.AddValidatorsFromAssembly(typeof(EnrollStudentValidator).Assembly);
+
+// Pipeline behaviors — ORDER MATTERS:
+// LoggingBehavior FIRST so it wraps ValidationBehavior.
+// Reverse order = validation failures appear as silent dead air in logs.
+builder.Services.AddTransient(typeof(IPipelineBehavior<,>), typeof(LoggingBehavior<,>));
+builder.Services.AddTransient(typeof(IPipelineBehavior<,>), typeof(ValidationBehavior<,>));
+
+// Global exception handler — translates ValidationException → 400,
+// unexpected exceptions → 500, both as RFC 7807 ProblemDetails.
+builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 
 // Add<T>() (generic overload) lets DI construct AuditLogFilter itself,
 // automatically resolving ILogger<AuditLogFilter> — no manual construction needed.
@@ -26,6 +50,11 @@ builder.Services.AddSingleton<EnrollmentWorker>();
 builder.Services.AddSingleton<IEnrollmentService, EnrollmentService>();
 builder.Services.AddScoped<ICourseService, CourseService>();
 builder.Services.AddScoped<ICourseEnrollmentService, CourseEnrollmentService>();
+
+// Register Application-layer interfaces so CQRS handlers can resolve them via DI
+builder.Services.AddScoped<TmsApi.Application.Interfaces.ICourseService, CourseService>();
+builder.Services.AddScoped<TmsApi.Application.Interfaces.IEnrollmentService, CourseEnrollmentService>();
+
 builder.Services
     .AddAuthentication("Training")
     .AddScheme<Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions,
@@ -39,6 +68,7 @@ builder.Services.AddOptions<PaymentOptions>()
     .ValidateOnStart();
 
 builder.Services.AddProblemDetails();
+
 // Separate OpenApi documents for V1 and V2 — Scalar shows them as a dropdown
 builder.Services.AddOpenApi("v1", options =>
 {
@@ -75,6 +105,9 @@ builder.Services.AddDbContext<TmsDbContext>(options =>
     .EnableSensitiveDataLogging());
 
 var app = builder.Build();
+
+// Global exception handler must be registered before MapControllers
+app.UseExceptionHandler();
 
 using (var scope = app.Services.CreateScope())
 {
@@ -124,9 +157,18 @@ app.UseAuthorization();
 
 if (app.Environment.IsDevelopment())
 {
-   app.MapOpenApi("/openapi/v1.json").CacheOutput();
-app.MapOpenApi("/openapi/v2.json").CacheOutput();
-    app.MapScalarApiReference();
+    app.MapOpenApi("/openapi/v1.json").CacheOutput();
+    app.MapOpenApi("/openapi/v2.json").CacheOutput();
+    app.MapScalarApiReference(options =>
+    {
+        options.WithTitle("TMS API Reference")
+            .WithTheme(ScalarTheme.DeepSpace)
+            .WithDefaultHttpClient(ScalarTarget.CSharp, ScalarClient.HttpClient);
+        // Show both V1 and V2 as separate documents in Scalar's sidebar dropdown
+        options
+            .AddDocument("v1", "API Version 1.0")
+            .AddDocument("v2", "API Version 2.0");
+    });
 }
 
 app.MapGet("/api/assessments/results", () => Results.Ok(new
@@ -142,10 +184,10 @@ app.MapGet("/api/error", () =>
     throw new TmsDatabaseException("Simulated database failure for ProblemDetails testing");
 });
 
-app.MapControllers();
 // Stamp Deprecation, Sunset, and Link headers on every V1 response.
 // Must be registered before MapControllers() so it wraps controller execution.
 app.UseMiddleware<V1DeprecationMiddleware>();
+
 app.MapControllers();
 
 // Seed deterministic demo data, but only in Development.
