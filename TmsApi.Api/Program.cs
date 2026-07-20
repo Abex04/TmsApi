@@ -6,6 +6,7 @@ using TmsApi.Domain.Entities;
 using TmsApi.Application.Interfaces;
 using TmsApi.Infrastructure.Services;
 using TmsApi.Filters;
+using Asp.Versioning;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -39,7 +40,20 @@ builder.Services.AddOptions<PaymentOptions>()
     .ValidateOnStart();
 
 builder.Services.AddProblemDetails();
-builder.Services.AddOpenApi();
+builder.Services.AddApiVersioning(options =>
+{
+    options.DefaultApiVersion = new ApiVersion(1, 0);
+    options.AssumeDefaultVersionWhenUnspecified = true;
+    options.ReportApiVersions = true;
+})
+.AddApiExplorer(options =>
+{
+    options.GroupNameFormat = "'v'VVV";
+    options.SubstituteApiVersionInUrl = true;
+});
+builder.Services.AddOpenApi("v1");
+builder.Services.AddOpenApi("v2");
+builder.Services.AddOutputCache();
 
 builder.Services.AddDbContext<TmsDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("TmsDatabase"))
@@ -93,11 +107,17 @@ app.UseHttpsRedirection();
 app.UseRouting();
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseOutputCache();
 
 if (app.Environment.IsDevelopment())
 {
-    app.MapOpenApi();
-    app.MapScalarApiReference();
+    app.MapOpenApi("/openapi/v1.json").CacheOutput();
+    app.MapOpenApi("/openapi/v2.json").CacheOutput();
+    app.MapScalarApiReference(options =>
+    {
+        options.Title = "Tms API Reference";
+        options.WithPreferredScheme("Training");
+    });
 }
 
 app.MapGet("/api/assessments/results", () => Results.Ok(new
@@ -113,6 +133,7 @@ app.MapGet("/api/error", () =>
     throw new TmsDatabaseException("Simulated database failure for ProblemDetails testing");
 });
 
+app.UseMiddleware<TmsApi.Api.Middleware.V1DeprecationMiddleware>();
 app.MapControllers();
 
 // Seed deterministic demo data, but only in Development.
