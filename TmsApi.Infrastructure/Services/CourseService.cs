@@ -111,4 +111,11 @@ public class CourseService(TmsDbContext context, ILogger<CourseService> logger) 
             PageSize = request.PageSize
         };
     }
+    // Fetch a course by its code, including Enrollments so the handler
+    // can check capacity without a second database query.
+    // Used by EnrollStudentHandler to check existence and capacity in one query.
+    public Task<Course?> GetByCodeAsync(string code, CancellationToken ct) =>
+        context.Courses
+            .Include(c => c.Enrollments)
+            .FirstOrDefaultAsync(c => c.Code == code, ct);
 }

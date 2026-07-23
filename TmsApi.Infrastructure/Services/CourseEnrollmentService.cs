@@ -9,7 +9,7 @@ namespace TmsApi.Infrastructure.Services;
 
 // Real implementation of ICourseEnrollmentService, backed by TmsDbContext.
 public class CourseEnrollmentService(TmsDbContext context, ILogger<CourseEnrollmentService> logger)
-    : ICourseEnrollmentService
+    : ICourseEnrollmentService, IEnrollmentService
 {
     public Task<EnrollmentResponseDto?> GetByIdAsync(int courseId, int id, CancellationToken ct)
     {
@@ -58,4 +58,31 @@ public class CourseEnrollmentService(TmsDbContext context, ILogger<CourseEnrollm
             .ContinueWith(t => (IReadOnlyList<EnrollmentResponseDto>)t.Result, 
                 TaskContinuationOptions.ExecuteSynchronously);
     }
+
+    // Check if a student is already enrolled in a course by course code.
+    // Used by EnrollStudentHandler to prevent duplicate enrollments.
+    public Task<bool> ExistsAsync(int studentId, string courseCode, CancellationToken ct) =>
+        context.Enrollments
+            .AsNoTracking()
+            .AnyAsync(e => e.StudentId == studentId && e.Course.Code == courseCode, ct);
+
+    // Persist a new enrollment — used by EnrollStudentHandler.
+    public async Task AddAsync(Enrollment enrollment, CancellationToken ct)
+    {
+        context.Enrollments.Add(enrollment);
+        await context.SaveChangesAsync(ct);
+
+        logger.LogInformation(
+            "Enrolled student {StudentId} into course {CourseId} (enrollment {EnrollmentId})",
+            enrollment.StudentId, enrollment.CourseId, enrollment.Id);
+    }
+
+    // Fetch all enrollments for a student, including the Course navigation
+    // property so GetStudentScheduleHandler can project course details.
+    public Task<List<Enrollment>> GetByStudentIdAsync(int studentId, CancellationToken ct) =>
+        context.Enrollments
+            .AsNoTracking()
+            .Include(e => e.Course)
+            .Where(e => e.StudentId == studentId)
+            .ToListAsync(ct);
 }

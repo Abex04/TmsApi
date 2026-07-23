@@ -1,14 +1,37 @@
-@TmsApi_HostAddress = http://localhost:5189
+@baseUrl = http://localhost:5189
 
-# Test 1: Anonymous request — should get 401
-GET {{TmsApi_HostAddress}}/api/assessments/results
-Accept: application/json
+### Test 1 - Valid enrollment → 201
+POST {{baseUrl}}/api/v2/enrollments
+Content-Type: application/json
 
-###
+{
+  "studentId": 1,
+  "courseCode": "CSE-101"
+}
 
-# Test 2: Authenticated request — should get 200
-GET {{TmsApi_HostAddress}}/api/assessments/results
-Accept: application/json
-X-Training-User: Abebe
+### Test 2 - Invalid format → 400
+POST {{baseUrl}}/api/v2/enrollments
+Content-Type: application/json
 
-###
+{
+  "studentId": 1,
+  "courseCode": "invalid"
+}
+
+### Test 3 - Non-existent course → 404
+POST {{baseUrl}}/api/v2/enrollments
+Content-Type: application/json
+
+{
+  "studentId": 1,
+  "courseCode": "ZZZ-999"
+}
+
+### Test 4 - Duplicate enrollment → 409 (run Test 1 first)
+POST {{baseUrl}}/api/v2/enrollments
+Content-Type: application/json
+
+{
+  "studentId": 1,
+  "courseCode": "CSE-101"
+}

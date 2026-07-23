@@ -1,4 +1,5 @@
 using TmsApi.Application.DTOs;
+using TmsApi.Domain.Entities;
 
 namespace TmsApi.Application.Interfaces;
 
@@ -18,4 +19,7 @@ public interface ICourseService
     Task<bool> CodeExistsAsync(string code, CancellationToken ct);
     Task<PagedResponse<CourseResponseDto>> GetCoursesAsync(PagedRequest request, CancellationToken ct);
     Task<CourseResponseDto> CreateAsync(CreateCourseRequest request, CancellationToken ct);
+    // Fetch a course by its code, including its Enrollments collection
+    // so the handler can check capacity without a second query.
+    Task<Course?> GetByCodeAsync(string code, CancellationToken ct);
 }

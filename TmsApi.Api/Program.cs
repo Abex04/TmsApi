@@ -7,8 +7,28 @@ using TmsApi.Application.Interfaces;
 using TmsApi.Infrastructure.Services;
 using TmsApi.Filters;
 using Asp.Versioning;
+using MediatR;
+using FluentValidation;
+using TmsApi.Application.Behaviors;
+using TmsApi.Application.Enrollments.Commands;
+using TmsApi.Api.ExceptionHandlers;
+
 
 var builder = WebApplication.CreateBuilder(args);
+
+// MediatR — scans the assembly containing EnrollStudentHandler
+builder.Services.AddMediatR(cfg =>
+    cfg.RegisterServicesFromAssembly(typeof(EnrollStudentHandler).Assembly));
+
+// FluentValidation — scans for all AbstractValidator<T> implementations
+builder.Services.AddValidatorsFromAssembly(typeof(EnrollStudentValidator).Assembly);
+
+// Pipeline behaviors — ORDER MATTERS: LoggingBehavior FIRST
+builder.Services.AddTransient(typeof(IPipelineBehavior<,>), typeof(LoggingBehavior<,>));
+builder.Services.AddTransient(typeof(IPipelineBehavior<,>), typeof(ValidationBehavior<,>));
+
+// Global exception handler
+builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 
 // Add<T>() (generic overload) lets DI construct AuditLogFilter itself,
 // automatically resolving ILogger<AuditLogFilter> — no manual construction needed.
@@ -27,6 +47,7 @@ builder.Services.AddSingleton<EnrollmentWorker>();
 builder.Services.AddSingleton<IEnrollmentService, EnrollmentService>();
 builder.Services.AddScoped<ICourseService, CourseService>();
 builder.Services.AddScoped<ICourseEnrollmentService, CourseEnrollmentService>();
+builder.Services.AddScoped<TmsApi.Application.Interfaces.IEnrollmentService, TmsApi.Infrastructure.Services.CourseEnrollmentService>();
 builder.Services
     .AddAuthentication("Training")
     .AddScheme<Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions,
