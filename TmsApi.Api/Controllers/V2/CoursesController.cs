@@ -1,56 +1,30 @@
 using Asp.Versioning;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using TmsApi.Infrastructure.Persistence;
+using TmsApi.Application.Interfaces;
 
 namespace TmsApi.Api.Controllers.V2;
 
-// V2 returns the enriched data/meta/links envelope.
+// V2 CoursesController — uses ICachedCourseService instead of hitting
+// the database directly. Cache stampede protection is built in.
 [ApiController]
 [Route("api/v{version:apiVersion}/courses")]
 [ApiVersion("2.0")]
-public class CoursesController(TmsDbContext context) : ControllerBase
+public class CoursesController(ICachedCourseService cachedCourseService) : ControllerBase
 {
-    // GET /api/v2/courses — returns data/meta/links envelope
+    // GET /api/v2/courses
+    // Returns courses from cache — only one DB query fires even if
+    // 50 requests arrive simultaneously on a cold cache.
     [HttpGet]
-    public async Task<IActionResult> GetCourses(
-        [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 20,
-        CancellationToken ct = default)
+    public async Task<IActionResult> GetCourses(CancellationToken ct)
     {
-        page = Math.Max(1, page);
-        pageSize = Math.Clamp(pageSize, 1, 50);
-
-        var baseQuery = context.Courses.AsNoTracking();
-        var totalCount = await baseQuery.CountAsync(ct);
-
-        var rows = await baseQuery
-            .OrderBy(c => c.Title)
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
-            .Select(c => new
-            {
-                c.Id,
-                c.Code,
-                c.Title,
-                c.MaxCapacity,
-                EnrollmentCount = c.Enrollments.Count
-            })
-            .ToListAsync(ct);
-
-        var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
-        var hasNext = page < totalPages;
-        var hasPrevious = page > 1;
-
+        var courses = await cachedCourseService.GetAllCoursesAsync(ct);
         return Ok(new
         {
-            data = rows,
-            meta = new { totalCount, page, pageSize, totalPages, hasNext, hasPrevious },
+            data = courses,
+            meta = new { totalCount = courses.Count },
             links = new
             {
-                self = $"/api/v2/courses?page={page}&pageSize={pageSize}",
-                next = hasNext ? $"/api/v2/courses?page={page + 1}&pageSize={pageSize}" : (string?)null,
-                prev = hasPrevious ? $"/api/v2/courses?page={page - 1}&pageSize={pageSize}" : (string?)null,
+                self = "/api/v2/courses",
                 enroll = "/api/v2/enrollments"
             }
         });

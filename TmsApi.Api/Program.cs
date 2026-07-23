@@ -9,12 +9,25 @@ using TmsApi.Filters;
 using Asp.Versioning;
 using MediatR;
 using FluentValidation;
+using Microsoft.Extensions.Caching.Hybrid;
 using TmsApi.Application.Behaviors;
 using TmsApi.Application.Enrollments.Commands;
 using TmsApi.Api.ExceptionHandlers;
+using TmsApi.Infrastructure.Services;
 
 
 var builder = WebApplication.CreateBuilder(args);
+
+// HybridCache — L1 (in-memory) + L2 (Redis in production, in-memory fallback in dev)
+// Prevents cache stampedes via atomic GetOrCreateAsync factory pattern.
+builder.Services.AddHybridCache(options =>
+{
+    options.DefaultEntryOptions = new HybridCacheEntryOptions
+    {
+        Expiration = TimeSpan.FromMinutes(10),
+        LocalCacheExpiration = TimeSpan.FromMinutes(2)
+    };
+});
 
 // MediatR — scans the assembly containing EnrollStudentHandler
 builder.Services.AddMediatR(cfg =>
@@ -47,6 +60,7 @@ builder.Services.AddSingleton<EnrollmentWorker>();
 builder.Services.AddSingleton<IEnrollmentService, EnrollmentService>();
 builder.Services.AddScoped<ICourseService, CourseService>();
 builder.Services.AddScoped<ICourseEnrollmentService, CourseEnrollmentService>();
+builder.Services.AddScoped<ICachedCourseService, CachedCourseService>();
 builder.Services.AddScoped<TmsApi.Application.Interfaces.IEnrollmentService, TmsApi.Infrastructure.Services.CourseEnrollmentService>();
 builder.Services
     .AddAuthentication("Training")

@@ -35,3 +35,5 @@ Content-Type: application/json
   "studentId": 1,
   "courseCode": "CSE-101"
 }
+### V2 - Get courses (should show Cache MISS first time, Cache HIT second time)
+GET http://localhost:5189/api/v2/courses
