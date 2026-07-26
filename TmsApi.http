@@ -1,39 +1,6 @@
-@baseUrl = http://localhost:5189
-
-### Test 1 - Valid enrollment → 201
-POST {{baseUrl}}/api/v2/enrollments
-Content-Type: application/json
-
-{
-  "studentId": 1,
-  "courseCode": "CSE-101"
-}
-
-### Test 2 - Invalid format → 400
-POST {{baseUrl}}/api/v2/enrollments
-Content-Type: application/json
-
-{
-  "studentId": 1,
-  "courseCode": "invalid"
-}
-
-### Test 3 - Non-existent course → 404
-POST {{baseUrl}}/api/v2/enrollments
-Content-Type: application/json
-
-{
-  "studentId": 1,
-  "courseCode": "ZZZ-999"
-}
-
-### Test 4 - Duplicate enrollment → 409 (run Test 1 first)
-POST {{baseUrl}}/api/v2/enrollments
-Content-Type: application/json
-
-{
-  "studentId": 1,
-  "courseCode": "CSE-101"
-}
-### V2 - Get courses (should show Cache MISS first time, Cache HIT second time)
+### Rate limit test - Anonymous tier (send this 11+ times quickly)
 GET http://localhost:5189/api/v2/courses
+
+### Rate limit test - Paid tier (should never get 429)
+GET http://localhost:5189/api/v2/courses
+X-Api-Key: tms-paid-001

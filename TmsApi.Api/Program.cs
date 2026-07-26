@@ -10,6 +10,8 @@ using Asp.Versioning;
 using MediatR;
 using FluentValidation;
 using Microsoft.Extensions.Caching.Hybrid;
+using Microsoft.AspNetCore.RateLimiting;
+using System.Threading.RateLimiting;
 using TmsApi.Application.Behaviors;
 using TmsApi.Application.Enrollments.Commands;
 using TmsApi.Api.ExceptionHandlers;
@@ -42,6 +44,51 @@ builder.Services.AddTransient(typeof(IPipelineBehavior<,>), typeof(ValidationBeh
 
 // Global exception handler
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
+
+// Tier-aware rate limiting — anonymous vs paid clients get different limits.
+// Anonymous: 10 requests per 10 seconds
+// Paid: 200 requests per 10 seconds (identified by X-Api-Key header)
+builder.Services.AddRateLimiter(options =>
+{
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
+    {
+        var apiKey = context.Request.Headers["X-Api-Key"].ToString();
+        if (!string.IsNullOrEmpty(apiKey) && apiKey.StartsWith("tms-paid-"))
+        {
+            return RateLimitPartition.GetTokenBucketLimiter(apiKey, _ =>
+                new TokenBucketRateLimiterOptions
+                {
+                    TokenLimit = 200,
+                    TokensPerPeriod = 200,
+                    ReplenishmentPeriod = TimeSpan.FromSeconds(10),
+                    QueueLimit = 0
+                });
+        }
+        return RateLimitPartition.GetTokenBucketLimiter("anonymous", _ =>
+            new TokenBucketRateLimiterOptions
+            {
+                TokenLimit = 10,
+                TokensPerPeriod = 10,
+                ReplenishmentPeriod = TimeSpan.FromSeconds(10),
+                QueueLimit = 0
+            });
+    });
+    options.OnRejected = async (context, ct) =>
+    {
+        context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+        context.HttpContext.Response.ContentType = "application/problem+json";
+        if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter))
+            context.HttpContext.Response.Headers["Retry-After"] =
+                ((int)retryAfter.TotalSeconds).ToString();
+        await context.HttpContext.Response.WriteAsJsonAsync(new
+        {
+            type = "https://tools.ietf.org/html/rfc6585#section-4",
+            title = "Too Many Requests",
+            status = 429,
+            detail = "Rate limit exceeded. See Retry-After header."
+        }, ct);
+    };
+});
 
 // Add<T>() (generic overload) lets DI construct AuditLogFilter itself,
 // automatically resolving ILogger<AuditLogFilter> — no manual construction needed.
@@ -140,6 +187,7 @@ app.UseExceptionHandler();
 app.UseStatusCodePages();
 app.UseHttpsRedirection();
 app.UseRouting();
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseOutputCache();
