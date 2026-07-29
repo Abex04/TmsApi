@@ -17,10 +17,9 @@ using TmsApi.Application.Enrollments.Commands;
 using TmsApi.Api.ExceptionHandlers;
 using TmsApi.Infrastructure.Services;
 
-
 var builder = WebApplication.CreateBuilder(args);
 
-// HybridCache — L1 (in-memory) + L2 (Redis in production, in-memory fallback in dev)
+// HybridCache — L1 (in-memory) + L2 (Redis in production, in-memoryfallback in dev)
 // Prevents cache stampedes via atomic GetOrCreateAsync factory pattern.
 builder.Services.AddHybridCache(options =>
 {
@@ -137,6 +136,20 @@ builder.Services.AddOpenApi("v1");
 builder.Services.AddOpenApi("v2");
 builder.Services.AddOutputCache();
 
+// ============ ADDED CORS POLICY ============
+// Allow Angular frontend (port 4200) to call this API
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowAngular",
+        policy =>
+        {
+            policy.WithOrigins("http://localhost:4200")
+                  .AllowAnyHeader()
+                  .AllowAnyMethod();
+        });
+});
+// ===========================================
+
 builder.Services.AddDbContext<TmsDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("TmsDatabase"))
     .LogTo(Console.WriteLine, LogLevel.Information)
@@ -187,6 +200,12 @@ app.UseExceptionHandler();
 app.UseStatusCodePages();
 app.UseHttpsRedirection();
 app.UseRouting();
+
+// ============ ADDED CORS MIDDLEWARE ============
+// Must be placed after UseRouting and before UseAuthentication/UseAuthorization
+app.UseCors("AllowAngular");
+// ===============================================
+
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
