@@ -1,7 +1,8 @@
 using Asp.Versioning;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
+using TmsApi.Dtos;
 using TmsApi.Data;
+using TmsApi.Services;
 
 namespace TmsApi.Controllers.V2;
 
@@ -11,7 +12,7 @@ namespace TmsApi.Controllers.V2;
 [ApiController]
 [Route("api/v{version:apiVersion}/courses")]
 [ApiVersion("2.0")]
-public class CoursesController(TmsDbContext context) : ControllerBase
+public class CoursesController(ICourseService courseService) : ControllerBase
 {
     // GET /api/v2/courses
     // Returns the V2 envelope: data (rows), meta (paging), links (navigation).
@@ -25,51 +26,39 @@ public class CoursesController(TmsDbContext context) : ControllerBase
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 50);
 
-        var baseQuery = context.Courses.AsNoTracking();
-
-        // Count BEFORE paging — same rule as Module 6
-        var totalCount = await baseQuery.CountAsync(ct);
-
-        var rows = await baseQuery
-            .OrderBy(c => c.Title)
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
-            .Select(c => new
+        var result = await courseService.GetCoursesAsync(
+            new PagedRequest
             {
-                c.Id,
-                c.Code,
-                c.Title,
-                c.MaxCapacity,
-                EnrollmentCount = c.Enrollments.Count
-            })
-            .ToListAsync(ct);
+                Page = page,
+                PageSize = pageSize
+            },
+            ct);
 
-        var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
-        var hasNext = page < totalPages;
-        var hasPrevious = page > 1;
+        var hasNext = result.HasNext;
+        var hasPrevious = result.HasPrevious;
 
         // V2 shape: data/meta/links envelope — different from V1's flat root.
         // meta contains all paging fields; links contains navigation URLs.
         return Ok(new
         {
-            data = rows,
+            data = result.Items,
             meta = new
             {
-                totalCount,
-                page,
-                pageSize,
-                totalPages,
+                totalCount = result.TotalCount,
+                page = result.Page,
+                pageSize = result.PageSize,
+                totalPages = result.TotalPages,
                 hasNext,
                 hasPrevious
             },
             links = new
             {
-                self = $"/api/v2/courses?page={page}&pageSize={pageSize}",
+                self = $"/api/v2/courses?page={result.Page}&pageSize={result.PageSize}",
                 next = hasNext
-                    ? $"/api/v2/courses?page={page + 1}&pageSize={pageSize}"
+                    ? $"/api/v2/courses?page={result.Page + 1}&pageSize={result.PageSize}"
                     : (string?)null,
                 prev = hasPrevious
-                    ? $"/api/v2/courses?page={page - 1}&pageSize={pageSize}"
+                    ? $"/api/v2/courses?page={result.Page - 1}&pageSize={result.PageSize}"
                     : (string?)null,
                 enroll = "/api/v2/enrollments"
             }

@@ -1,6 +1,7 @@
 using Asp.Versioning;
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Hybrid;
 using Microsoft.Extensions.Logging;
 using Scalar.AspNetCore;
 using TmsApi.Application.Behaviors;
@@ -10,6 +11,7 @@ using TmsApi.Entities;
 using TmsApi.ExceptionHandlers;
 using TmsApi.Filters;
 using TmsApi.Middleware;
+using TmsApi.Infrastructure.Services;
 using TmsApi.Services;
 using MediatR;
 
@@ -48,8 +50,22 @@ builder.Host.UseDefaultServiceProvider(options =>
 
 builder.Services.AddSingleton<EnrollmentWorker>();
 builder.Services.AddSingleton<IEnrollmentService, EnrollmentService>();
+builder.Services.AddScoped<CourseService>();
 builder.Services.AddScoped<ICourseService, CourseService>();
 builder.Services.AddScoped<ICourseEnrollmentService, CourseEnrollmentService>();
+
+// REGISTER HYBRID CACHE
+builder.Services.AddHybridCache(options =>
+{
+    options.DefaultEntryOptions = new HybridCacheEntryOptions
+    {
+        Expiration = TimeSpan.FromMinutes(10),
+        LocalCacheExpiration = TimeSpan.FromMinutes(2)
+    };
+});
+
+// REGISTER THE CACHED COURSE SERVICE
+builder.Services.AddScoped<TmsApi.Services.ICourseService, CachedCourseService>();
 
 // Register Application-layer interfaces so CQRS handlers can resolve them via DI
 builder.Services.AddScoped<TmsApi.Application.Interfaces.ICourseService, CourseService>();
