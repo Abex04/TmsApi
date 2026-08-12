@@ -14,6 +14,10 @@ using TmsApi.Middleware;
 using TmsApi.Infrastructure.Services;
 using TmsApi.Services;
 using MediatR;
+using System.Threading.Channels;
+using TmsApi.Application.Transcripts;
+using TmsApi.Infrastructure.Transcripts;
+using TmsApi.Infrastructure.Workers;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -53,6 +57,20 @@ builder.Services.AddSingleton<IEnrollmentService, EnrollmentService>();
 builder.Services.AddScoped<CourseService>();
 builder.Services.AddScoped<ICourseService, CourseService>();
 builder.Services.AddScoped<ICourseEnrollmentService, CourseEnrollmentService>();
+
+// Transcript status store — singleton so the in-memory dictionary persists
+// across requests for the lifetime of the app.
+builder.Services.AddSingleton<ITranscriptStatusStore, InMemoryTranscriptStatusStore>();
+
+// Bounded channel — the queue between TranscriptsController (writer) and
+// TranscriptWorker (reader). Capped at 100 pending items; Wait mode means
+// new writes pause rather than drop requests if the queue fills up.
+builder.Services.AddSingleton(Channel.CreateBounded<TranscriptRequest>(
+    new BoundedChannelOptions(100) { FullMode = BoundedChannelFullMode.Wait }));
+
+// Background worker that processes queued transcript requests off the
+// HTTP request thread — this is what lets the controller return 202 instantly.
+builder.Services.AddHostedService<TranscriptWorker>();
 
 // REGISTER HYBRID CACHE
 builder.Services.AddHybridCache(options =>
