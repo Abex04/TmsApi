@@ -14,6 +14,14 @@ using TmsApi.Middleware;
 using TmsApi.Infrastructure.Services;
 using TmsApi.Services;
 using MediatR;
+using Microsoft.AspNetCore.Cors.Infrastructure;
+using System.Threading.Channels;
+using TmsApi.Application.Transcripts;
+using TmsApi.Infrastructure.Transcripts;
+using TmsApi.Infrastructure.Workers;
+using TmsApi.Hubs;
+using TmsApi.Application.Notifications;
+using TmsApi.Notifications;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -24,6 +32,19 @@ builder.Services.AddMediatR(cfg =>
 
 // FluentValidation — scans for all AbstractValidator<T> implementations
 builder.Services.AddValidatorsFromAssembly(typeof(EnrollStudentValidator).Assembly);
+
+// CORS — allows the Angular dev server (and file:// test pages, whose
+// origin is "null") to connect to the API and the SignalR hub.
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("Dev", policy =>
+    {
+        policy.SetIsOriginAllowed(origin => true)
+              .AllowAnyHeader()
+              .AllowAnyMethod()
+              .AllowCredentials();
+    });
+});
 
 // Pipeline behaviors — ORDER MATTERS:
 // LoggingBehavior FIRST so it wraps ValidationBehavior.
@@ -53,6 +74,26 @@ builder.Services.AddSingleton<IEnrollmentService, EnrollmentService>();
 builder.Services.AddScoped<CourseService>();
 builder.Services.AddScoped<ICourseService, CourseService>();
 builder.Services.AddScoped<ICourseEnrollmentService, CourseEnrollmentService>();
+
+// Transcript status store — singleton so the in-memory dictionary persists
+// across requests for the lifetime of the app.
+builder.Services.AddSingleton<ITranscriptStatusStore, InMemoryTranscriptStatusStore>();
+
+// Bounded channel — the queue between TranscriptsController (writer) and
+// TranscriptWorker (reader). Capped at 100 pending items; Wait mode means
+// new writes pause rather than drop requests if the queue fills up.
+builder.Services.AddSingleton(Channel.CreateBounded<TranscriptRequest>(
+    new BoundedChannelOptions(100) { FullMode = BoundedChannelFullMode.Wait }));
+
+// Background worker that processes queued transcript requests off the
+// HTTP request thread — this is what lets the controller return 202 instantly.
+builder.Services.AddHostedService<TranscriptWorker>();
+
+// SignalR — real-time push. TmsHub handles connections; the
+// notification service is the abstraction TranscriptWorker calls
+// into, so Infrastructure never references SignalR directly.
+builder.Services.AddSignalR();
+builder.Services.AddSingleton<ITranscriptNotificationService, SignalRTranscriptNotificationService>();
 
 // REGISTER HYBRID CACHE
 builder.Services.AddHybridCache(options =>
@@ -168,6 +209,7 @@ app.UseExceptionHandler();
 app.UseStatusCodePages();
 app.UseHttpsRedirection();
 app.UseRouting();
+app.UseCors("Dev");
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -205,6 +247,9 @@ app.MapGet("/api/error", () =>
 app.UseMiddleware<V1DeprecationMiddleware>();
 
 app.MapControllers();
+
+// SignalR hub endpoint — clients connect here (with ?studentId=X to auto-join their group).
+app.MapHub<TmsHub>("/hubs/tms");
 
 // Seed deterministic demo data, but only in Development.
 // Staging and production data belongs to the operations team, not this seed file.
