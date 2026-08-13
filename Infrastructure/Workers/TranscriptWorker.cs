@@ -1,16 +1,15 @@
 using System.Threading.Channels;
+using TmsApi.Application.Notifications;
 using TmsApi.Application.Transcripts;
 using TmsApi.Infrastructure.Transcripts;
 
 namespace TmsApi.Infrastructure.Workers;
 
-// Reads queued transcript requests off the channel and processes them
-// one at a time, off the HTTP request thread. This is what lets the
-// controller return 202 instantly instead of blocking for 5+ seconds.
 public class TranscriptWorker(
     Channel<TranscriptRequest> channel,
     IServiceScopeFactory scopeFactory,
     ITranscriptStatusStore statusStore,
+    ITranscriptNotificationService notificationService,
     ILogger<TranscriptWorker> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken ct)
@@ -29,12 +28,17 @@ public class TranscriptWorker(
                     reportId, request.StudentId);
 
                 using var scope = scopeFactory.CreateScope();
-                // Real production: pull the EF context, render PDF, save to blob storage.
                 await Task.Delay(TimeSpan.FromSeconds(5), ct);
 
                 var downloadUrl = $"/api/v2/transcripts/{reportId}/download";
                 await statusStore.MarkReadyAsync(reportId, downloadUrl, ct);
-                logger.LogInformation("Transcript ready: {ReportId}", reportId);
+
+                await notificationService.NotifyTranscriptReadyAsync(
+                    request.StudentId, reportId, downloadUrl);
+
+                logger.LogInformation(
+                    "Transcript ready, notification sent: {ReportId} for student {StudentId}",
+                    reportId, request.StudentId);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
