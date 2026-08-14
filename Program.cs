@@ -35,14 +35,29 @@ builder.Services.AddValidatorsFromAssembly(typeof(EnrollStudentValidator).Assemb
 
 // CORS — allows the Angular dev server (and file:// test pages, whose
 // origin is "null") to connect to the API and the SignalR hub.
+// M10 Session 1: Load allowed origins from appsettings.Development.json
+// instead of hardcoding them in C# source - this is what makes production
+// deployment painless later (staging/prod just get a different config value,
+// no code change needed).
+var allowedOrigins = builder.Configuration
+    .GetSection("AllowedOrigins").Get<string[]>()
+    ?? ["http://localhost:4200"];
+
+// Named CORS policy "TmsClient" - replaces the M7 catch-all "Dev" policy.
+// SECURITY NOTE: never combine AllowAnyOrigin() with AllowCredentials().
+// ASP.NET Core throws InvalidOperationException at startup if you try -
+// the browser spec forbids wildcard origins with credentialed requests,
+// since that would let any malicious site make authenticated calls
+// against a logged-in user's session.
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("Dev", policy =>
+    options.AddPolicy("TmsClient", policy =>
     {
-        policy.SetIsOriginAllowed(origin => true)
+        policy.WithOrigins(allowedOrigins)
               .AllowAnyHeader()
               .AllowAnyMethod()
-              .AllowCredentials();
+              .AllowCredentials() // Vital for HttpOnly auth cookies in Session 2
+              .SetPreflightMaxAge(TimeSpan.FromMinutes(10));
     });
 });
 
@@ -209,7 +224,9 @@ app.UseExceptionHandler();
 app.UseStatusCodePages();
 app.UseHttpsRedirection();
 app.UseRouting();
-app.UseCors("Dev");
+// M10 Session 1 Part B: named CORS policy re-enabled. Middleware order
+// matters here: UseRouting -> UseCors -> UseAuthentication -> UseAuthorization.
+app.UseCors("TmsClient");
 app.UseAuthentication();
 app.UseAuthorization();
 
