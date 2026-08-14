@@ -1,4 +1,5 @@
 using Asp.Versioning;
+using Microsoft.AspNetCore.Antiforgery;
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Hybrid;
@@ -134,6 +135,15 @@ builder.Services
 
 builder.Services.AddAuthorization();
 
+// M10 Session 2: Antiforgery service generates XSRF tokens for
+// state-changing requests. HeaderName matches Angular's built-in
+// XSRF convention (withXsrfConfiguration on the frontend expects this
+// exact header name).
+builder.Services.AddAntiforgery(options =>
+{
+    options.HeaderName = "X-XSRF-TOKEN";
+});
+
 builder.Services.AddOptions<PaymentOptions>()
     .BindConfiguration("Payments")
     .ValidateDataAnnotations()
@@ -229,6 +239,28 @@ app.UseRouting();
 app.UseCors("TmsClient");
 app.UseAuthentication();
 app.UseAuthorization();
+
+// M10 Session 2: issue a readable XSRF-TOKEN cookie for any request that
+// carries our auth cookie. Angular JavaScript reads this cookie and echoes
+// it back as the X-XSRF-TOKEN header on mutating requests - a malicious
+// external site cannot read cookies across origins under SOP, so it cannot
+// forge that header, which is what defeats CSRF.
+app.Use(async (context, next) =>
+{
+    if (context.User.Identity?.IsAuthenticated == true || context.Request.Cookies.ContainsKey("tms_auth"))
+    {
+        var antiforgery = context.RequestServices.GetRequiredService<IAntiforgery>();
+        var tokens = antiforgery.GetAndStoreTokens(context);
+        context.Response.Cookies.Append("XSRF-TOKEN", tokens.RequestToken!,
+            new CookieOptions
+            {
+                HttpOnly = false, // MUST be false - Angular JavaScript needs to read this one.
+                Secure = !builder.Environment.IsDevelopment(),
+                SameSite = SameSiteMode.Strict
+            });
+    }
+    await next(context);
+});
 
 if (app.Environment.IsDevelopment())
 {
