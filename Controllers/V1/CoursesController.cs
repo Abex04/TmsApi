@@ -5,33 +5,22 @@ using TmsApi.Data;
 
 namespace TmsApi.Controllers.V1;
 
-// V1 is the frozen contract — existing clients depend on this shape.
-// Never rename fields, remove fields, or add required fields here.
-// The route template uses v{version:apiVersion} so ASP.NET Core's
-// versioning middleware routes requests to the right controller automatically.
 [ApiController]
 [Route("api/v{version:apiVersion}/courses")]
 [ApiVersion("1.0")]
 public class CoursesController(TmsDbContext context) : ControllerBase
 {
-    // GET /api/v1/courses
-    // Returns the V1 TMS contract: items array + paging fields at the root.
-    // This is the shape tablets and Angular list screens depend on.
     [HttpGet]
     public async Task<IActionResult> GetCourses(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
         CancellationToken ct = default)
     {
-        // Clamp page and pageSize to safe values
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 50);
 
         var baseQuery = context.Courses.AsNoTracking();
-
-        // Count BEFORE paging — same rule as Module 6
         var totalCount = await baseQuery.CountAsync(ct);
-
         var items = await baseQuery
             .OrderBy(c => c.Title)
             .Skip((page - 1) * pageSize)
@@ -48,7 +37,6 @@ public class CoursesController(TmsDbContext context) : ControllerBase
 
         var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
 
-        // V1 shape: flat root object with items + paging metadata
         return Ok(new
         {
             items,
@@ -59,5 +47,40 @@ public class CoursesController(TmsDbContext context) : ControllerBase
             hasNext = page < totalPages,
             hasPrevious = page > 1
         });
+    }
+
+    // DELETE /api/v1/courses/{id}
+    // M10 Session 3: backs the optimistic-delete + rollback flow on the
+    // Angular side. Returns 409 Conflict (as a ProblemDetails body, via
+    // AddProblemDetails() already registered in Program.cs) if the course
+    // still has active enrollments - the frontend uses that specific
+    // status code to trigger its rollback.
+    [HttpDelete("{id:int}")]
+    public async Task<IActionResult> DeleteCourse(int id, CancellationToken ct)
+    {
+        var course = await context.Courses
+            .Include(c => c.Enrollments)
+            .FirstOrDefaultAsync(c => c.Id == id, ct);
+
+        if (course is null)
+        {
+            return NotFound();
+        }
+
+        var hasActiveEnrollments = course.Enrollments.Any(e => !e.IsArchived);
+        if (hasActiveEnrollments)
+        {
+            return Conflict(new ProblemDetails
+            {
+                Title = "Cannot delete course",
+                Detail = $"Cannot delete course: active student enrollments exist for '{course.Title}'.",
+                Status = StatusCodes.Status409Conflict
+            });
+        }
+
+        context.Courses.Remove(course);
+        await context.SaveChangesAsync(ct);
+
+        return NoContent();
     }
 }

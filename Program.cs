@@ -298,7 +298,7 @@ app.UseMiddleware<V1DeprecationMiddleware>();
 app.MapControllers();
 
 // SignalR hub endpoint — clients connect here (with ?studentId=X to auto-join their group).
-app.MapHub<TmsHub>("/hubs/tms");
+app.MapHub<TmsHub>("/hubs/tms").RequireCors("TmsClient");
 
 // Seed deterministic demo data, but only in Development.
 // Staging and production data belongs to the operations team, not this seed file.
