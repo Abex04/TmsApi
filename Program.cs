@@ -15,6 +15,10 @@ using TmsApi.Middleware;
 using TmsApi.Infrastructure.Services;
 using TmsApi.Services;
 using MediatR;
+using System.IdentityModel.Tokens.Jwt;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+using System.Text;
 using Microsoft.AspNetCore.Identity;
 using TmsApi.Identity;
 using Microsoft.AspNetCore.Cors.Infrastructure;
@@ -27,6 +31,12 @@ using TmsApi.Application.Notifications;
 using TmsApi.Notifications;
 
 var builder = WebApplication.CreateBuilder(args);
+// M11 Session 2: JwtSecurityTokenHandler silently rewrites short claim
+// types (ClaimTypes.NameIdentifier, etc.) into long schema URIs by
+// default. Clearing this map keeps our tokens' claims as "sub",
+// "email", "role" - matching what the PDF's checkpoint expects to see
+// on jwt.ms, instead of the verbose XML-namespace-style URIs.
+JwtSecurityTokenHandler.DefaultOutboundClaimTypeMap.Clear();
 
 // MediatR — scans the assembly containing EnrollStudentHandler for all
 // IRequestHandler implementations and registers them automatically.
@@ -130,8 +140,31 @@ builder.Services.AddScoped<TmsApi.Services.ICourseService, CachedCourseService>(
 builder.Services.AddScoped<TmsApi.Application.Interfaces.ICourseService, CourseService>();
 builder.Services.AddScoped<TmsApi.Application.Interfaces.IEnrollmentService, CourseEnrollmentService>();
 
+builder.Services.AddScoped<TokenService>();
 builder.Services
-    .AddAuthentication("Training")
+    .AddAuthentication(options =>
+    {
+        // M11 Session 2: JWT Bearer becomes the default scheme. "Training"
+        // (the header-based demo scheme from earlier work) stays registered
+        // below but is no longer the default - nothing currently depends
+        // on it being default, confirmed before this change.
+        options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+        options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+    })
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = builder.Configuration["Jwt:Issuer"],
+            ValidAudience = builder.Configuration["Jwt:Audience"],
+            IssuerSigningKey = new SymmetricSecurityKey(
+                Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]!))
+        };
+    })
     .AddScheme<Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions,
         TrainingAuthHandler>("Training", null);
 

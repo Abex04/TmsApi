@@ -1,7 +1,11 @@
 using Asp.Versioning;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using TmsApi.Data;
+using TmsApi.Entities;
 using TmsApi.Identity;
+using TmsApi.Services;
 
 namespace TmsApi.Controllers.V2;
 
@@ -10,7 +14,9 @@ namespace TmsApi.Controllers.V2;
 [ApiVersion("2.0")]
 public class AuthController(
     UserManager<TmsUser> userManager,
-    RoleManager<IdentityRole> roleManager) : ControllerBase
+    RoleManager<IdentityRole> roleManager,
+    TmsDbContext context,
+    TokenService tokenService) : ControllerBase
 {
     public record RegisterRequest(
         string Email,
@@ -19,17 +25,12 @@ public class AuthController(
         string LastName,
         string Role);
 
-    // POST /api/v2/auth/register
-    // M11 Session 1: real account creation via UserManager, replacing
-    // M10's single hardcoded admin/Password123! demo credential.
     [HttpPost("register")]
     public async Task<IActionResult> Register([FromBody] RegisterRequest request)
     {
         var existingUser = await userManager.FindByEmailAsync(request.Email);
         if (existingUser != null)
         {
-            // Prevent account enumeration - don't reveal whether this
-            // email is already registered.
             return Ok(new { message = "Registration request received." });
         }
 
@@ -60,11 +61,10 @@ public class AuthController(
     public record LoginRequest(string Email, string Password);
 
     // POST /api/v2/auth/login
-    // M11 Session 1: real UserManager-backed authentication with lockout
-    // protection. Still issues the tms_auth HttpOnly cookie on success,
-    // same as the M10 flow - so credentialsInterceptor, XSRF middleware,
-    // and everything downstream that depends on that cookie keeps working
-    // unchanged.
+    // M11 Session 2: now issues a real JWT access token (15 min) + a
+    // refresh token (7 days) in the JSON body. Still ALSO sets the
+    // tms_auth HttpOnly cookie from M10 - both transport mechanisms
+    // coexist; nothing from M10's XSRF/cookie flow was removed.
     [HttpPost("login")]
     public async Task<IActionResult> Login(
         [FromBody] LoginRequest request,
@@ -88,11 +88,25 @@ public class AuthController(
             return Unauthorized(new { detail = "Invalid credentials." });
         }
 
-        // Reset failed attempt counter on successful login
         await userManager.ResetAccessFailedCountAsync(user);
 
-        var dummyJwt = "header.payload.signature-demo-token";
-        Response.Cookies.Append("tms_auth", dummyJwt, new CookieOptions
+        var roles = await userManager.GetRolesAsync(user);
+        var accessToken = tokenService.GenerateJwt(user, roles);
+
+        // Issue initial Refresh Token
+        var refreshToken = new RefreshToken
+        {
+            Token = Guid.NewGuid().ToString("N"),
+            UserId = user.Id,
+            ExpiresAt = DateTime.UtcNow.AddDays(7),
+            IsUsed = false,
+            IsRevoked = false
+        };
+        context.RefreshTokens.Add(refreshToken);
+        await context.SaveChangesAsync();
+
+        // M10 cookie flow - kept alongside the new JWT flow.
+        Response.Cookies.Append("tms_auth", "header.payload.signature-demo-token", new CookieOptions
         {
             HttpOnly = true,
             Secure = !env.IsDevelopment(),
@@ -102,15 +116,74 @@ public class AuthController(
 
         return Ok(new
         {
-            userId = user.Id,
-            email = user.Email,
-            firstName = user.FirstName,
-            lastName = user.LastName
+            accessToken,
+            refreshToken = refreshToken.Token
         });
     }
 
-    // GET /api/v2/auth/me
-    // Unchanged from M10 - still just checks for the cookie's presence.
+    public record RefreshRequest(string RefreshToken);
+
+    // POST /api/v2/auth/refresh
+    // Rotation: every call invalidates the submitted token (IsUsed = true)
+    // and issues a brand-new pair. Theft detection: if someone submits a
+    // token that's ALREADY marked used, that's a strong signal that token
+    // was stolen and used twice by two different parties - so we revoke
+    // every token this user has, forcing a fresh login everywhere.
+    [HttpPost("refresh")]
+    public async Task<IActionResult> Refresh([FromBody] RefreshRequest request)
+    {
+        var storedToken = await context.RefreshTokens
+            .FirstOrDefaultAsync(rt => rt.Token == request.RefreshToken);
+
+        if (storedToken == null)
+        {
+            return Unauthorized(new { detail = "Invalid refresh token." });
+        }
+
+        if (storedToken.IsUsed)
+        {
+            var userTokens = await context.RefreshTokens
+                .Where(rt => rt.UserId == storedToken.UserId)
+                .ToListAsync();
+
+            foreach (var t in userTokens)
+            {
+                t.IsRevoked = true;
+            }
+            await context.SaveChangesAsync();
+
+            return Unauthorized(new { detail = "Token theft detected. All user sessions revoked." });
+        }
+
+        if (storedToken.IsRevoked || storedToken.ExpiresAt < DateTime.UtcNow)
+        {
+            return Unauthorized(new { detail = "Refresh token expired or revoked." });
+        }
+
+        storedToken.IsUsed = true;
+
+        var newRefreshToken = new RefreshToken
+        {
+            Token = Guid.NewGuid().ToString("N"),
+            UserId = storedToken.UserId,
+            ExpiresAt = DateTime.UtcNow.AddDays(7),
+            IsUsed = false,
+            IsRevoked = false
+        };
+        context.RefreshTokens.Add(newRefreshToken);
+        await context.SaveChangesAsync();
+
+        var user = await userManager.FindByIdAsync(storedToken.UserId);
+        var roles = await userManager.GetRolesAsync(user!);
+        var newAccessToken = tokenService.GenerateJwt(user!, roles);
+
+        return Ok(new
+        {
+            accessToken = newAccessToken,
+            refreshToken = newRefreshToken.Token
+        });
+    }
+
     [HttpGet("me")]
     public IActionResult GetCurrentUser()
     {
