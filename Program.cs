@@ -15,6 +15,8 @@ using TmsApi.Middleware;
 using TmsApi.Infrastructure.Services;
 using TmsApi.Services;
 using MediatR;
+using Microsoft.AspNetCore.Identity;
+using TmsApi.Identity;
 using Microsoft.AspNetCore.Cors.Infrastructure;
 using System.Threading.Channels;
 using TmsApi.Application.Transcripts;
@@ -186,6 +188,26 @@ builder.Services.AddDbContext<TmsDbContext>(options =>
     .LogTo(Console.WriteLine, LogLevel.Information)
     .EnableSensitiveDataLogging());
 
+// M11 Session 1: ASP.NET Core Identity Core configuration.
+// AddIdentityCore (not AddIdentity) - we don't need cookie-based
+// Identity UI/pages, just UserManager + RoleManager for our own
+// AuthController to call directly.
+builder.Services.AddIdentityCore<TmsUser>(options =>
+{
+    // Enterprise Password Policy
+    options.Password.RequiredLength = 12;
+    options.Password.RequireUppercase = true;
+    options.Password.RequireDigit = true;
+    options.Password.RequireNonAlphanumeric = true;
+
+    // Brute-Force Lockout Protection
+    options.Lockout.MaxFailedAccessAttempts = 5;
+    options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
+    options.Lockout.AllowedForNewUsers = true;
+})
+    .AddRoles<IdentityRole>()
+    .AddEntityFrameworkStores<TmsDbContext>();
+
 var app = builder.Build();
 
 // Global exception handler must be registered before MapControllers
@@ -285,6 +307,7 @@ app.MapGet("/api/assessments/results", () => Results.Ok(new
     letterGrade = "A"
 }))
 .RequireAuthorization();
+
 
 app.MapGet("/api/error", () =>
 {
