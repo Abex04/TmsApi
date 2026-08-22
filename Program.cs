@@ -15,6 +15,8 @@ using TmsApi.Middleware;
 using TmsApi.Infrastructure.Services;
 using TmsApi.Services;
 using MediatR;
+using Microsoft.AspNetCore.Authorization;
+using TmsApi.Authorization;
 using System.IdentityModel.Tokens.Jwt;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
@@ -153,6 +155,13 @@ builder.Services
     })
     .AddJwtBearer(options =>
     {
+        // Without this, incoming tokens get their claim types silently
+        // remapped on validation (e.g. "sub" -> the long
+        // ClaimTypes.NameIdentifier URI) even though we already cleared
+        // the OUTBOUND map for token generation. This keeps claim names
+        // consistent in both directions - what TokenService writes is
+        // exactly what CourseInstructorHandler reads back.
+        options.MapInboundClaims = false;
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
@@ -161,6 +170,8 @@ builder.Services
             ValidateIssuerSigningKey = true,
             ValidIssuer = builder.Configuration["Jwt:Issuer"],
             ValidAudience = builder.Configuration["Jwt:Audience"],
+            RoleClaimType = "role",
+            NameClaimType = "sub",
             IssuerSigningKey = new SymmetricSecurityKey(
                 Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]!))
         };
@@ -168,7 +179,16 @@ builder.Services
     .AddScheme<Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions,
         TrainingAuthHandler>("Training", null);
 
-builder.Services.AddAuthorization();
+// M11 Session 3: AddAuthorizationBuilder replaces the plain
+// AddAuthorization() call - lets us chain .AddPolicy() fluently.
+// CanEditCourse is a resource-based policy: it doesn't just check role
+// membership, it runs CourseInstructorHandler against the specific
+// Course being edited.
+builder.Services.AddAuthorizationBuilder()
+    .AddPolicy("CanEditCourse", policy =>
+        policy.Requirements.Add(new CourseInstructorRequirement()));
+
+builder.Services.AddSingleton<IAuthorizationHandler, CourseInstructorHandler>();
 
 // M10 Session 2: Antiforgery service generates XSRF tokens for
 // state-changing requests. HeaderName matches Angular's built-in
