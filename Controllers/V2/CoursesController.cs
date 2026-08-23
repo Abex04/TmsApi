@@ -1,31 +1,32 @@
 using Asp.Versioning;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using TmsApi.Dtos;
+using Microsoft.EntityFrameworkCore;
 using TmsApi.Data;
+using TmsApi.Dtos;
 using TmsApi.Services;
 
 namespace TmsApi.Controllers.V2;
 
-// V2 is the enriched contract — wraps the response in a data/meta/links
-// envelope so the Angular dashboard has structured paging metadata and
-// navigation links without a second round-trip.
 [ApiController]
 [Route("api/v{version:apiVersion}/courses")]
 [ApiVersion("2.0")]
-public class CoursesController(ICourseService courseService) : ControllerBase
+public class CoursesController(
+    ICourseService courseService,
+    TmsDbContext context,
+    IAuthorizationService authorizationService) : ControllerBase
 {
-    // GET /api/v2/courses
-    // Returns the V2 envelope: data (rows), meta (paging), links (navigation).
+    // GET /api/v2/courses - unchanged, stays anonymous. Locking this down
+    // would break the already-verified course-catalog read flow from
+    // M10 Session 3.
     [HttpGet]
     public async Task<IActionResult> GetCourses(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
         CancellationToken ct = default)
     {
-        // Clamp page and pageSize to safe values
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 50);
-
         var result = await courseService.GetCoursesAsync(
             new PagedRequest
             {
@@ -33,12 +34,8 @@ public class CoursesController(ICourseService courseService) : ControllerBase
                 PageSize = pageSize
             },
             ct);
-
         var hasNext = result.HasNext;
         var hasPrevious = result.HasPrevious;
-
-        // V2 shape: data/meta/links envelope — different from V1's flat root.
-        // meta contains all paging fields; links contains navigation URLs.
         return Ok(new
         {
             data = result.Items,
@@ -63,5 +60,34 @@ public class CoursesController(ICourseService courseService) : ControllerBase
                 enroll = "/api/v2/enrollments"
             }
         });
+    }
+
+    // PUT /api/v2/courses/{id}
+    // M11 Session 3: resource-based authorization. [Authorize] confirms
+    // the caller has SOME valid role; AuthorizeAsync(User, course,
+    // "CanEditCourse") then confirms THIS caller owns THIS specific
+    // course (or is an Admin, who owns everything). 403 Forbid() is
+    // returned when the caller is authenticated but not permitted -
+    // distinct from 401 Unauthorized, which means not authenticated at all.
+    [Authorize(Roles = "Instructor,Admin")]
+    [HttpPut("{id:int}")]
+    public async Task<IActionResult> UpdateCourse(int id, [FromBody] UpdateCourseRequest dto, CancellationToken ct)
+    {
+        var course = await context.Courses.FindAsync([id], ct);
+        if (course is null)
+        {
+            return NotFound();
+        }
+
+        var authResult = await authorizationService.AuthorizeAsync(User, course, "CanEditCourse");
+        if (!authResult.Succeeded)
+        {
+            return Forbid();
+        }
+
+        course.Title = dto.Title;
+        await context.SaveChangesAsync(ct);
+
+        return NoContent();
     }
 }

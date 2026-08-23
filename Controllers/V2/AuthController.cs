@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.RateLimiting;
 using Asp.Versioning;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -65,6 +66,7 @@ public class AuthController(
     // refresh token (7 days) in the JSON body. Still ALSO sets the
     // tms_auth HttpOnly cookie from M10 - both transport mechanisms
     // coexist; nothing from M10's XSRF/cookie flow was removed.
+    [EnableRateLimiting("AuthLimiter")]
     [HttpPost("login")]
     public async Task<IActionResult> Login(
         [FromBody] LoginRequest request,

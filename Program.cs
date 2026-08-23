@@ -15,6 +15,9 @@ using TmsApi.Middleware;
 using TmsApi.Infrastructure.Services;
 using TmsApi.Services;
 using MediatR;
+using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.AspNetCore.Authorization;
+using TmsApi.Authorization;
 using System.IdentityModel.Tokens.Jwt;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
@@ -153,6 +156,13 @@ builder.Services
     })
     .AddJwtBearer(options =>
     {
+        // Without this, incoming tokens get their claim types silently
+        // remapped on validation (e.g. "sub" -> the long
+        // ClaimTypes.NameIdentifier URI) even though we already cleared
+        // the OUTBOUND map for token generation. This keeps claim names
+        // consistent in both directions - what TokenService writes is
+        // exactly what CourseInstructorHandler reads back.
+        options.MapInboundClaims = false;
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
@@ -161,6 +171,8 @@ builder.Services
             ValidateIssuerSigningKey = true,
             ValidIssuer = builder.Configuration["Jwt:Issuer"],
             ValidAudience = builder.Configuration["Jwt:Audience"],
+            RoleClaimType = "role",
+            NameClaimType = "sub",
             IssuerSigningKey = new SymmetricSecurityKey(
                 Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]!))
         };
@@ -168,7 +180,16 @@ builder.Services
     .AddScheme<Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions,
         TrainingAuthHandler>("Training", null);
 
-builder.Services.AddAuthorization();
+// M11 Session 3: AddAuthorizationBuilder replaces the plain
+// AddAuthorization() call - lets us chain .AddPolicy() fluently.
+// CanEditCourse is a resource-based policy: it doesn't just check role
+// membership, it runs CourseInstructorHandler against the specific
+// Course being edited.
+builder.Services.AddAuthorizationBuilder()
+    .AddPolicy("CanEditCourse", policy =>
+        policy.Requirements.Add(new CourseInstructorRequirement()));
+
+builder.Services.AddSingleton<IAuthorizationHandler, CourseInstructorHandler>();
 
 // M10 Session 2: Antiforgery service generates XSRF tokens for
 // state-changing requests. HeaderName matches Angular's built-in
@@ -177,6 +198,22 @@ builder.Services.AddAuthorization();
 builder.Services.AddAntiforgery(options =>
 {
     options.HeaderName = "X-XSRF-TOKEN";
+});
+
+// M11 Session 3: fixed-window rate limiter for the login endpoint -
+// 5 attempts per minute. QueueLimit = 0 means the 6th+ request in the
+// window is rejected immediately, not queued and delayed.
+// RejectionStatusCode defaults to 503 in .NET - we override it to 429,
+// the semantically correct code for rate limiting.
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddFixedWindowLimiter("AuthLimiter", opt =>
+    {
+        opt.PermitLimit = 5;
+        opt.Window = TimeSpan.FromMinutes(1);
+        opt.QueueLimit = 0;
+    });
 });
 
 builder.Services.AddOptions<PaymentOptions>()
@@ -289,6 +326,28 @@ app.UseExceptionHandler();
 app.UseStatusCodePages();
 app.UseHttpsRedirection();
 app.UseRouting();
+app.UseRateLimiter();
+
+// M11 Session 3: security response headers on every response.
+// X-Content-Type-Options: nosniff - stops the browser from guessing a
+//   different MIME type than what the server declared (prevents some
+//   XSS vectors via disguised file uploads).
+// X-Frame-Options: DENY - stops this site from being embedded in an
+//   <iframe> anywhere, which prevents clickjacking attacks.
+// Referrer-Policy - limits how much of the URL leaks to external sites
+//   when a user clicks a link away from this app.
+// Content-Security-Policy - restricts which origins scripts/styles can
+//   load from; 'self' means same-origin only.
+app.Use(async (context, next) =>
+{
+    context.Response.Headers.Append("X-Content-Type-Options", "nosniff");
+    context.Response.Headers.Append("X-Frame-Options", "DENY");
+    context.Response.Headers.Append("Referrer-Policy", "strict-origin-when-cross-origin");
+    context.Response.Headers.Append(
+        "Content-Security-Policy",
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';");
+    await next();
+});
 // M10 Session 1 Part B: named CORS policy re-enabled. Middleware order
 // matters here: UseRouting -> UseCors -> UseAuthentication -> UseAuthorization.
 app.UseCors("TmsClient");
