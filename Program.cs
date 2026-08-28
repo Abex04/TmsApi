@@ -286,7 +286,14 @@ app.UseExceptionHandler();
 using (var scope = app.Services.CreateScope())
 {
     var context = scope.ServiceProvider.GetRequiredService<TmsDbContext>();
-    context.Database.Migrate();
+    // M12 Session 1: Migrate() is relational-only and throws under the
+    // InMemory provider CustomWebApplicationFactory swaps in for tests.
+    // IsRelational() guards this so production (always Postgres) is
+    // unaffected, while tests skip migration entirely.
+    if (context.Database.ProviderName != "Microsoft.EntityFrameworkCore.InMemory")
+    {
+        context.Database.Migrate();
+    }
 
     if (!context.Students.Any())
     {
@@ -425,3 +432,8 @@ if (app.Environment.IsDevelopment())
 }
 
 app.Run();
+// M12 Session 1: exposes Program as a public partial class so
+// WebApplicationFactory<Program> in TmsApi.Tests can reference it.
+// Top-level statement programs compile to an internal Program class by
+// default - this makes it accessible to the test project.
+public partial class Program { }

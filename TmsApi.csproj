@@ -33,4 +33,16 @@
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.22.0" />
   </ItemGroup>
 
+
+  <ItemGroup>
+    <!-- M12 Session 1: TmsApi.Tests lives nested inside this project's
+         directory. SDK-style projects auto-include all .cs files in their
+         tree by default, so without this exclusion, TmsApi.csproj tries
+         to compile the test project's files too (and fails, since it
+         has no xunit reference). -->
+    <Compile Remove="TmsApi.Tests\**" />
+    <Content Remove="TmsApi.Tests\**" />
+    <EmbeddedResource Remove="TmsApi.Tests\**" />
+    <None Remove="TmsApi.Tests\**" />
+  </ItemGroup>
 </Project>
