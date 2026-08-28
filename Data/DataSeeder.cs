@@ -43,7 +43,12 @@ public static class DataSeeder
     public static async Task SeedAsync(TmsDbContext context, CancellationToken ct = default)
     {
         // Ensure the database schema is up to date before seeding.
-        await context.Database.MigrateAsync(ct);
+        // M12 Session 1: guard for the InMemory test provider, same reasoning
+        // as Program.cs - MigrateAsync is relational-only.
+        if (context.Database.ProviderName != "Microsoft.EntityFrameworkCore.InMemory")
+        {
+            await context.Database.MigrateAsync(ct);
+        }
 
         // Idempotency guard: if any course already exists, skip seeding entirely.
         // This prevents duplicate inserts every time the app restarts.
