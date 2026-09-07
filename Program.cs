@@ -276,6 +276,7 @@ builder.Services.AddIdentityCore<TmsUser>(options =>
     options.Lockout.AllowedForNewUsers = true;
 })
     .AddRoles<IdentityRole>()
+    .AddDefaultTokenProviders()
     .AddEntityFrameworkStores<TmsDbContext>();
 
 var app = builder.Build();

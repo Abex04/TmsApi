@@ -196,4 +196,54 @@ public class AuthController(
 
         return Unauthorized(new { detail = "Session expired or missing authentication cookie." });
     }
+
+    public record ForgotPasswordRequest(string Email);
+
+    // POST /api/v2/auth/forgot-password
+    // Demo-mode password reset: generates a real ASP.NET Identity reset
+    // token and returns it directly in the response instead of emailing
+    // it, since this project has no email/SMTP infrastructure. In a real
+    // production system this token would be emailed to the user instead
+    // of returned here. Always returns 200 regardless of whether the
+    // email exists, to avoid leaking which emails are registered.
+    [EnableRateLimiting("AuthLimiter")]
+    [HttpPost("forgot-password")]
+    public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest request)
+    {
+        var user = await userManager.FindByEmailAsync(request.Email);
+        if (user == null)
+        {
+            return Ok(new { message = "If that email is registered, a reset token has been generated." });
+        }
+
+        var token = await userManager.GeneratePasswordResetTokenAsync(user);
+
+        return Ok(new
+        {
+            message = "If that email is registered, a reset token has been generated.",
+            resetToken = token
+        });
+    }
+
+    public record ResetPasswordRequest(string Email, string Token, string NewPassword);
+
+    // POST /api/v2/auth/reset-password
+    [HttpPost("reset-password")]
+    public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordRequest request)
+    {
+        var user = await userManager.FindByEmailAsync(request.Email);
+        if (user == null)
+        {
+            return BadRequest(new { detail = "Invalid request." });
+        }
+
+        var result = await userManager.ResetPasswordAsync(user, request.Token, request.NewPassword);
+        if (!result.Succeeded)
+        {
+            var errors = result.Errors.Select(e => e.Description);
+            return BadRequest(new { errors });
+        }
+
+        return Ok(new { message = "Password reset successful." });
+    }
 }
