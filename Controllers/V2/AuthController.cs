@@ -56,8 +56,31 @@ public class AuthController(
         }
         await userManager.AddToRoleAsync(user, request.Role);
 
+        // Self-registered Students get a matching Student domain record,
+        // linked via TmsUserId, so enrollment features (which key off
+        // Student.Id, not the Identity account) work immediately.
+        // IgnoreQueryFilters() counts soft-deleted rows too, so the
+        // generated RegistrationNumber never collides with a deleted one.
+        if (request.Role == "Student")
+        {
+            var year = DateTime.UtcNow.Year;
+            var count = await context.Students.IgnoreQueryFilters().CountAsync() + 1;
+            var registrationNumber = $"TMS-{year}-{count:D4}";
+
+            var student = new Entities.Student
+            {
+                RegistrationNumber = registrationNumber,
+                Name = $"{request.FirstName} {request.LastName}",
+                GPA = 0,
+                TmsUserId = user.Id
+            };
+            context.Students.Add(student);
+            await context.SaveChangesAsync();
+        }
+
         return Ok(new { message = "Registration successful." });
     }
+
 
     public record LoginRequest(string Email, string Password);
 
