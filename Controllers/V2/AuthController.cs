@@ -59,22 +59,24 @@ public class AuthController(
         // Self-registered Students get a matching Student domain record,
         // linked via TmsUserId, so enrollment features (which key off
         // Student.Id, not the Identity account) work immediately.
-        // IgnoreQueryFilters() counts soft-deleted rows too, so the
-        // generated RegistrationNumber never collides with a deleted one.
+        // RegistrationNumber is derived from the DB-generated Id (saved
+        // once to get it assigned, then updated) rather than a COUNT()
+        // of existing rows, which collides after any row is deleted -
+        // Id is guaranteed unique and never reused by Postgres identity.
         if (request.Role == "Student")
         {
-            var year = DateTime.UtcNow.Year;
-            var count = await context.Students.IgnoreQueryFilters().CountAsync() + 1;
-            var registrationNumber = $"TMS-{year}-{count:D4}";
-
             var student = new Entities.Student
             {
-                RegistrationNumber = registrationNumber,
+                RegistrationNumber = "PENDING",
                 Name = $"{request.FirstName} {request.LastName}",
                 GPA = 0,
                 TmsUserId = user.Id
             };
             context.Students.Add(student);
+            await context.SaveChangesAsync();
+
+            var year = DateTime.UtcNow.Year;
+            student.RegistrationNumber = $"TMS-{year}-{student.Id:D4}";
             await context.SaveChangesAsync();
         }
 

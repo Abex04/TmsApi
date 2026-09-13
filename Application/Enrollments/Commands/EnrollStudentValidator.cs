@@ -20,9 +20,11 @@ public class EnrollStudentValidator : AbstractValidator<EnrollStudentCommand>
             .NotEmpty()
             .WithMessage("Course code is required.");
 
-        // CourseCode must follow the TMS format XXX-000 (e.g. CSE-101)
+        // CourseCode must follow the TMS format XX-000 to XXXX-000
+        // (e.g. CS-101, CSE-101) - widened from a strict 3-letter-only
+        // pattern, which rejected real seeded course codes like CS-101.
         RuleFor(x => x.CourseCode)
-            .Matches(@"^[A-Z]{3}-\d{3}$")
-            .WithMessage("Course code must follow the format XXX-000 (e.g., CSE-101).");
+            .Matches(@"^[A-Z]{2,4}-\d{3}$")
+            .WithMessage("Course code must follow the format XX-000 to XXXX-000 (e.g., CS-101, CSE-101).");
     }
 }
