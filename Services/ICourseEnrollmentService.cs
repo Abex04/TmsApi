@@ -1,4 +1,5 @@
 using TmsApi.Dtos;
+using TmsApi.Entities;
 
 namespace TmsApi.Services;
 
@@ -18,4 +19,8 @@ public interface ICourseEnrollmentService
     // Fetch all enrollments belonging to a specific course, for the
     // list-enrollments endpoint (GET /api/courses/{courseId}/enrollments).
     Task<IReadOnlyList<EnrollmentResponseDto>> GetByCourseAsync(int courseId, CancellationToken ct);
+
+    // Persist a status change (Approved/Rejected) for a pending enrollment.
+    // Returns the updated DTO, or null if no matching enrollment exists.
+    Task<EnrollmentResponseDto?> UpdateStatusAsync(int courseId, int id, EnrollmentStatus status, CancellationToken ct);
 }

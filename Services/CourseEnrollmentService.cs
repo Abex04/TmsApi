@@ -19,7 +19,7 @@ public class CourseEnrollmentService(TmsDbContext context, ILogger<CourseEnrollm
         return context.Enrollments
             .AsNoTracking()
             .Where(e => e.Id == id && e.CourseId == courseId)
-            .Select(e => new EnrollmentResponseDto(e.Id, e.CourseId, e.StudentId, e.EnrolledAt))
+            .Select(e => new EnrollmentResponseDto(e.Id, e.CourseId, e.StudentId, e.EnrolledAt, e.Status))
             .FirstOrDefaultAsync(ct);
     }
 
@@ -54,7 +54,7 @@ public class CourseEnrollmentService(TmsDbContext context, ILogger<CourseEnrollm
         return context.Enrollments
             .AsNoTracking()
             .Where(e => e.CourseId == courseId)
-            .Select(e => new EnrollmentResponseDto(e.Id, e.CourseId, e.StudentId, e.EnrolledAt))
+            .Select(e => new EnrollmentResponseDto(e.Id, e.CourseId, e.StudentId, e.EnrolledAt, e.Status))
             .ToListAsync(ct)
             .ContinueWith(t => (IReadOnlyList<EnrollmentResponseDto>)t.Result,
                 TaskContinuationOptions.ExecuteSynchronously);
@@ -87,4 +87,28 @@ public class CourseEnrollmentService(TmsDbContext context, ILogger<CourseEnrollm
             .Include(e => e.Course)
             .Where(e => e.StudentId == studentId)
             .ToListAsync(ct);
+
+    // Persist a status change (Approved/Rejected) for a pending enrollment.
+    // Uses tracked entity access (no AsNoTracking) since we need to mutate
+    // and save it. Returns null if no matching enrollment exists so the
+    // controller can translate that into a 404.
+    public async Task<EnrollmentResponseDto?> UpdateStatusAsync(int courseId, int id, EnrollmentStatus status, CancellationToken ct)
+    {
+        var enrollment = await context.Enrollments
+            .FirstOrDefaultAsync(e => e.Id == id && e.CourseId == courseId, ct);
+
+        if (enrollment is null)
+        {
+            return null;
+        }
+
+        enrollment.Status = status;
+        await context.SaveChangesAsync(ct);
+
+        logger.LogInformation(
+            "Enrollment {EnrollmentId} status changed to {Status}",
+            enrollment.Id, status);
+
+        return new EnrollmentResponseDto(enrollment.Id, enrollment.CourseId, enrollment.StudentId, enrollment.EnrolledAt, enrollment.Status);
+    }
 }

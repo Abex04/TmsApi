@@ -2,6 +2,13 @@ using System;
 
 namespace TmsApi.Entities;
 
+public enum EnrollmentStatus
+{
+    Pending,
+    Approved,
+    Rejected
+}
+
 public class Enrollment
 {
     public int Id { get; set; }
@@ -10,6 +17,7 @@ public class Enrollment
     public decimal? Grade { get; set; }
     public DateTime EnrolledAt { get; set; } = DateTime.UtcNow;
     public bool IsArchived { get; set; } = false;       // bulk archive flag
+    public EnrollmentStatus Status { get; set; } = EnrollmentStatus.Pending;
 
     // Navigation properties
     public Student Student { get; set; } = null!;

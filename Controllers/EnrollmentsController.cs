@@ -79,17 +79,13 @@ public class EnrollmentsController(
     }
 
     // POST /api/courses/{courseId}/enrollments/{id}/approve
-    // M9 Session 3: no Status column exists on Enrollment yet, so this
-    // endpoint doesn't persist anything — it exists to prove the SignalR
-    // broadcast mechanism works end-to-end. A real persisted approval
-    // workflow is a future-module concern (see M10 in the lab plan).
     [HttpPost("{id:int}/approve")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     [EndpointSummary("Approve a pending enrollment and broadcast the status change live")]
     public async Task<IActionResult> Approve(int courseId, int id, CancellationToken ct)
     {
-        var enrollment = await enrollmentService.GetByIdAsync(courseId, id, ct);
+        var enrollment = await enrollmentService.UpdateStatusAsync(courseId, id, TmsApi.Entities.EnrollmentStatus.Approved, ct);
         if (enrollment is null)
         {
             return NotFound();
@@ -98,6 +94,24 @@ public class EnrollmentsController(
         // Broadcast to every connected instructor dashboard — any instructor
         // may be viewing any course, so Clients.All (not a group) is correct here.
         await hubContext.Clients.All.ReceiveEnrollmentStatusUpdated(id.ToString(), "Approved");
+
+        return NoContent();
+    }
+
+    // POST /api/courses/{courseId}/enrollments/{id}/reject
+    [HttpPost("{id:int}/reject")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [EndpointSummary("Reject a pending enrollment and broadcast the status change live")]
+    public async Task<IActionResult> Reject(int courseId, int id, CancellationToken ct)
+    {
+        var enrollment = await enrollmentService.UpdateStatusAsync(courseId, id, TmsApi.Entities.EnrollmentStatus.Rejected, ct);
+        if (enrollment is null)
+        {
+            return NotFound();
+        }
+
+        await hubContext.Clients.All.ReceiveEnrollmentStatusUpdated(id.ToString(), "Rejected");
 
         return NoContent();
     }

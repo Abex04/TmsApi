@@ -15,6 +15,14 @@ public class EnrollmentConfiguration : IEntityTypeConfiguration<Enrollment>
         builder.Property(e => e.Grade)
             .HasPrecision(4, 2);
 
+        // Stored as a string (not int) so the column stays readable in the
+        // DB and doesn't silently break if the enum's member order ever
+        // changes. Every enrollment starts Pending until approved/rejected.
+        builder.Property(e => e.Status)
+            .HasConversion<string>()
+            .HasMaxLength(20)
+            .HasDefaultValue(EnrollmentStatus.Pending);
+
         // Relationship: one Student has many Enrollments
         // Restrict delete — cannot delete a student who has enrollments
         builder.HasOne(e => e.Student)
