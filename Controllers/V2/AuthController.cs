@@ -50,11 +50,16 @@ public class AuthController(
             return BadRequest(new { errors });
         }
 
-        if (!await roleManager.RoleExistsAsync(request.Role))
+        // Public self-registration can only ever create Students. The client-supplied
+        // request.Role is deliberately ignored - trusting it would let anyone call this
+        // endpoint directly (curl/Postman) and register themselves as Admin.
+        const string publicRole = "Student";
+
+        if (!await roleManager.RoleExistsAsync(publicRole))
         {
-            await roleManager.CreateAsync(new IdentityRole(request.Role));
+            await roleManager.CreateAsync(new IdentityRole(publicRole));
         }
-        await userManager.AddToRoleAsync(user, request.Role);
+        await userManager.AddToRoleAsync(user, publicRole);
 
         // Self-registered Students get a matching Student domain record,
         // linked via TmsUserId, so enrollment features (which key off
@@ -63,7 +68,7 @@ public class AuthController(
         // once to get it assigned, then updated) rather than a COUNT()
         // of existing rows, which collides after any row is deleted -
         // Id is guaranteed unique and never reused by Postgres identity.
-        if (request.Role == "Student")
+        if (publicRole == "Student")
         {
             var student = new Entities.Student
             {
