@@ -61,29 +61,9 @@ public class AuthController(
         }
         await userManager.AddToRoleAsync(user, publicRole);
 
-        // Self-registered Students get a matching Student domain record,
-        // linked via TmsUserId, so enrollment features (which key off
-        // Student.Id, not the Identity account) work immediately.
-        // RegistrationNumber is derived from the DB-generated Id (saved
-        // once to get it assigned, then updated) rather than a COUNT()
-        // of existing rows, which collides after any row is deleted -
-        // Id is guaranteed unique and never reused by Postgres identity.
-        if (publicRole == "Student")
-        {
-            var student = new Entities.Student
-            {
-                RegistrationNumber = "PENDING",
-                Name = $"{request.FirstName} {request.LastName}",
-                GPA = 0,
-                TmsUserId = user.Id
-            };
-            context.Students.Add(student);
-            await context.SaveChangesAsync();
-
-            var year = DateTime.UtcNow.Year;
-            student.RegistrationNumber = $"TMS-{year}-{student.Id:D4}";
-            await context.SaveChangesAsync();
-        }
+        // Self-registered Students get a matching Student domain record so
+        // enrollment features (which key off Student.Id) work immediately.
+        await CreateStudentRecordAsync(user, request.FirstName, request.LastName);
 
         return Ok(new { message = "Registration successful." });
     }
@@ -275,5 +255,80 @@ public class AuthController(
         }
 
         return Ok(new { message = "Password reset successful." });
+    }
+
+    private static readonly string[] AssignableRoles = ["Student", "Instructor", "Admin"];
+
+    public record AdminCreateUserRequest(
+        string Email,
+        string Password,
+        string FirstName,
+        string LastName,
+        string Role);
+
+    // POST /api/v2/auth/admin-create-user
+    // Admin-only account provisioning. Unlike the public /register endpoint
+    // (which always creates Students), this lets an authenticated Admin create
+    // accounts with any role from the whitelist. The whitelist matters even
+    // here: never assign a role string straight from the request body.
+    [Microsoft.AspNetCore.Authorization.Authorize(Roles = "Admin")]
+    [HttpPost("admin-create-user")]
+    public async Task<IActionResult> AdminCreateUser([FromBody] AdminCreateUserRequest request)
+    {
+        if (!AssignableRoles.Contains(request.Role))
+        {
+            return BadRequest(new { detail = $"Role must be one of: {string.Join(", ", AssignableRoles)}." });
+        }
+
+        if (await userManager.FindByEmailAsync(request.Email) != null)
+        {
+            return Conflict(new { detail = "A user with that email already exists." });
+        }
+
+        var user = new TmsUser
+        {
+            UserName = request.Email,
+            Email = request.Email,
+            FirstName = request.FirstName,
+            LastName = request.LastName
+        };
+
+        var result = await userManager.CreateAsync(user, request.Password);
+        if (!result.Succeeded)
+        {
+            return BadRequest(new { errors = result.Errors.Select(e => e.Description) });
+        }
+
+        if (!await roleManager.RoleExistsAsync(request.Role))
+        {
+            await roleManager.CreateAsync(new IdentityRole(request.Role));
+        }
+        await userManager.AddToRoleAsync(user, request.Role);
+
+        if (request.Role == "Student")
+        {
+            await CreateStudentRecordAsync(user, request.FirstName, request.LastName);
+        }
+
+        return Ok(new { id = user.Id, email = user.Email, role = request.Role });
+    }
+
+    // Creates the Student domain record linked to a TmsUser. RegistrationNumber
+    // is derived from the DB-generated Id (save once to get it, then update)
+    // so it can never collide after deletions the way a COUNT() would.
+    private async Task CreateStudentRecordAsync(TmsUser user, string firstName, string lastName)
+    {
+        var student = new Entities.Student
+        {
+            RegistrationNumber = "PENDING",
+            Name = $"{firstName} {lastName}",
+            GPA = 0,
+            TmsUserId = user.Id
+        };
+        context.Students.Add(student);
+        await context.SaveChangesAsync();
+
+        student.RegistrationNumber = $"TMS-{DateTime.UtcNow.Year}-{student.Id:D4}";
+        await context.SaveChangesAsync();
     }
 }
